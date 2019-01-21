@@ -390,6 +390,29 @@ class Tools extends ToolsCommon
         );
     }
 
+     /**
+     * Request authorization for event Prestação de Serviço em Desacordo
+     * @param  string $chave
+     * @param  array $infCorrecao
+     * @param  int $nSeqEvento
+     * @return string
+     */
+    public function sefazServicoDesacordo($chave, $uf ,$infAdic , $nSeqEvento = 1)
+    {
+        $uf = $this->validKeyByUF($chave);
+        $tpEvento = 610110;
+        
+        $tagAdic = self::serializerSD($infAdic);
+        
+        return $this->sefazEvento(
+            $uf,
+            $chave,
+            $tpEvento,
+            $nSeqEvento,
+            $tagAdic
+        );
+    }
+
     /**
      * Request extension of the term of return of products of an NF-e of
      * consignment for industrialization to order with suspension of ICMS
@@ -650,6 +673,7 @@ class Tools extends ToolsCommon
             . "</detEvento>"
             . "</infEvento>"
             . "</eventoCTe>";
+
         //assinatura dos dados
         $request = Signer::sign(
             $this->certificate,
@@ -666,6 +690,7 @@ class Tools extends ToolsCommon
         $parameters = ['cteDadosMsg' => $request];
         $body = "<cteDadosMsg xmlns=\"$this->urlNamespace\">$request</cteDadosMsg>";
         $this->lastResponse = $this->sendRequest($body, $parameters);
+
         return $this->lastResponse;
     }
 
@@ -871,6 +896,11 @@ class Tools extends ToolsCommon
                 $std->alias = 'EvNaoRealizada';
                 $std->desc = 'Operacao nao Realizada';
                 break;
+            case 610110:
+                //Prestação de Serviço em Desacordo
+                $std->alias = 'EvPrestDesacordo';
+                $std->desc = 'Prestação de Serviço em Desacordo';
+            break;
             default:
                 $msg = "O código do tipo de evento informado não corresponde a "
                 . "nenhum evento estabelecido.";
@@ -913,4 +943,13 @@ class Tools extends ToolsCommon
             "</xCondUso>" .
         "</evCCeCTe>";
     }
+
+    private static function serializerSD($inf){
+        return "<evPrestDesacordo>".
+        "<descEvento>Prestação do Serviço em Desacordo</descEvento>".
+        "<indDesacordoOper>1</indDesacordoOper>".
+        "<xObs>$inf</xObs>".
+        "</evPrestDesacordo>";
+    }
+
 }
