@@ -13,11 +13,21 @@ namespace NFePHP\CTe;
  * @author    Roberto L. Machado <linux.rlm at gmail dot com>
  */
 
+use NFePHP\Common\Keys;
+use NFePHP\Common\DOMImproved as Dom;
+use NFePHP\Common\Strings;
+use stdClass;
+use RuntimeException;
 use DOMElement;
-use NFePHP\Common\Base\BaseMake;
+use DateTime;
 
-class Make extends BaseMake
+class Make
 {
+    /**
+     * @var array
+     */
+    public $erros = [];
+    
     /**
      * versao
      * numero da versão do xml da CTe
@@ -74,6 +84,11 @@ class Make extends BaseMake
      */
     private $ide = '';
     /**
+     * Percurso do CT-e OS
+     * @var \DOMNode
+     */
+    private $infPercurso = [];
+    /**
      * Tipo do Serviço
      * @var integer
      */
@@ -88,6 +103,11 @@ class Make extends BaseMake
      * @var \DOMNode
      */
     private $toma4 = '';
+    /**
+     * Indicador do "papel" do tomador do serviço no CT-e OS
+     * @var \DOMNode
+     */
+    private $toma = '';
     /**
      * Dados do endereço
      * @var \DOMNode
@@ -275,6 +295,11 @@ class Make extends BaseMake
      */
     private $infCarga = '';
     /**
+     * Informações da Prestação do Serviço
+     * @var \DOMNode
+     */
+    private $infServico = '';
+    /**
      * Informações de quantidades da Carga do CT-e
      * @var \DOMNode
      */
@@ -300,6 +325,11 @@ class Make extends BaseMake
      * @var array
      */
     private $infOutros = array();
+    /**
+     * Informações dos demais documentos
+     * @var array
+     */
+    private $infDocRef = array();
     /**
      * Informações das Unidades de Transporte (Carreta/Reboque/Vagão)
      * @var array
@@ -391,10 +421,10 @@ class Make extends BaseMake
      */
     private $tomaICMS = '';
     /**
-     * Tomador não é contribuinte do ICMS
+     * Informação da NFe emitida pelo Tomador
      * @var \DOMNode
      */
-    private $tomaNaoICMS = '';
+    private $refNFe = '';
     /**
      * Informação da NF ou CT emitido pelo Tomador
      * @var \DOMNode
@@ -454,18 +484,68 @@ class Make extends BaseMake
      * @var array
      */
     private $moto = array();
-
+    
+    public function __construct()
+    {
+        $this->dom = new Dom('1.0', 'UTF-8');
+        $this->dom->preserveWhiteSpace = false;
+        $this->dom->formatOutput = false;
+    }
+    
+    /**
+     * Returns xml string and assembly it is necessary
+     * @return string
+     */
+    public function getXML()
+    {
+        if (empty($this->xml)) {
+            $this->montaCTe();
+        }
+        return $this->xml;
+    }
+    
+    /**
+     * Retorns the key number of NFe (44 digits)
+     * @return string
+     */
+    public function getChave()
+    {
+        return $this->chCTe;
+    }
+    
+    /**
+     * Returns the model of CTe 57 or 67
+     * @return int
+     */
+    public function getModelo()
+    {
+        return $this->mod;
+    }
+    
+    /**
+     * Call method of xml assembly. For compatibility only.
+     * @return boolean
+     */
+    public function montaCTe()
+    {
+        return $this->monta();
+    }
+    
     /**
      * Monta o arquivo XML usando as tag's já preenchidas
      *
      * @return bool
      */
-    public function montaCTe()
+    public function monta()
     {
         if (count($this->erros) > 0) {
             return false;
         }
-        $this->zCTeTag();
+        if ($this->mod == 57) {
+            $this->buildCTe();
+        } else {
+            $this->montaCTeOS();
+        }
         if ($this->toma3 != '') {
             $this->dom->appChild($this->ide, $this->toma3, 'Falta tag "ide"');
         } else {
@@ -473,31 +553,36 @@ class Make extends BaseMake
             $this->dom->appChild($this->ide, $this->toma4, 'Falta tag "ide"');
         }
         $this->dom->appChild($this->infCte, $this->ide, 'Falta tag "infCte"');
+        if ($this->semData != '') {
+            $this->tagEntrega();
+            $this->dom->appChild($this->entrega, $this->semData, 'Falta tag "Entrega"');
+        }
+        if ($this->comData != '') {
+            $this->tagEntrega();
+            $this->dom->appChild($this->entrega, $this->comData, 'Falta tag "Entrega"');
+        }
+        if ($this->noPeriodo != '') {
+            $this->tagEntrega();
+            $this->dom->appChild($this->entrega, $this->noPeriodo, 'Falta tag "Entrega"');
+        }
+        if ($this->semHora != '') {
+            $this->tagEntrega();
+            $this->dom->appChild($this->entrega, $this->semHora, 'Falta tag "Entrega"');
+        }
+        if ($this->comHora != '') {
+            $this->tagEntrega();
+            $this->dom->appChild($this->entrega, $this->comHora, 'Falta tag "Entrega"');
+        }
+        if ($this->noInter != '') {
+            $this->tagEntrega();
+            $this->dom->appChild($this->entrega, $this->noInter, 'Falta tag "Entrega"');
+        }
         if ($this->compl != '') {
             if ($this->fluxo != '') {
                 foreach ($this->pass as $pass) {
                     $this->dom->appChild($this->fluxo, $pass, 'Falta tag "fluxo"');
                 }
                 $this->dom->appChild($this->compl, $this->fluxo, 'Falta tag "infCte"');
-            }
-            if ($this->semData != '') {
-                $this->zEntregaTag();
-                $this->dom->appChild($this->entrega, $this->semData, 'Falta tag "Entrega"');
-            } elseif ($this->comData != '') {
-                $this->zEntregaTag();
-                $this->dom->appChild($this->entrega, $this->comData, 'Falta tag "Entrega"');
-            } elseif ($this->noPeriodo != '') {
-                $this->zEntregaTag();
-                $this->dom->appChild($this->entrega, $this->noPeriodo, 'Falta tag "Entrega"');
-            } elseif ($this->semHora != '') {
-                $this->zEntregaTag();
-                $this->dom->appChild($this->entrega, $this->semHora, 'Falta tag "Entrega"');
-            } elseif ($this->comHora != '') {
-                $this->zEntregaTag();
-                $this->dom->appChild($this->entrega, $this->comHora, 'Falta tag "Entrega"');
-            } elseif ($this->noInter != '') {
-                $this->zEntregaTag();
-                $this->dom->appChild($this->entrega, $this->noInter, 'Falta tag "Entrega"');
             }
             foreach ($this->obsCont as $obsCont) {
                 $this->dom->appChild($this->compl, $obsCont, 'Falta tag "compl"');
@@ -573,6 +658,73 @@ class Make extends BaseMake
         foreach ($this->veic as $veic) {
             $this->dom->appChild($this->rodo, $veic, 'Falta tag "veic"');
         }
+        //[1] tag infCTe
+        $this->dom->appChild($this->CTe, $this->infCte, 'Falta tag "CTe"');
+        //[0] tag CTe
+        $this->dom->appendChild($this->CTe);
+        
+        // testa da chave
+        $this->checkCTeKey($this->dom);
+        $this->xml = $this->dom->saveXML();
+        return true;
+    }
+
+    /**
+     * Monta o arquivo XML usando as tag's já preenchidas
+     *
+     * @return bool
+     */
+    public function montaCTeOS()
+    {
+        if (count($this->erros) > 0) {
+            return false;
+        }
+        $this->buildCTeOS();
+
+        if ($this->infPercurso != '') {
+            foreach ($this->infPercurso as $perc) {
+                $this->dom->appChild($this->ide, $perc, 'Falta tag "infPercurso"');
+            }
+        }
+        $this->dom->appChild($this->infCte, $this->ide, 'Falta tag "infCte"');
+        if ($this->compl != '') {
+            $this->dom->appChild($this->infCte, $this->compl, 'Falta tag "infCte"');
+        }
+        $this->dom->appChild($this->emit, $this->enderEmit, 'Falta tag "emit"');
+        $this->dom->appChild($this->infCte, $this->emit, 'Falta tag "infCte"');
+
+        if ($this->toma != '') {
+            //$this->dom->appChild($this->toma, $this->enderToma, 'Falta tag "toma"');
+            $this->dom->appChild($this->infCte, $this->toma, 'Falta tag "infCte"');
+        }
+
+        foreach ($this->comp as $comp) {
+            $this->dom->appChild($this->vPrest, $comp, 'Falta tag "vPrest"');
+        }
+        $this->dom->appChild($this->infCte, $this->vPrest, 'Falta tag "infCte"');
+        $this->dom->appChild($this->infCte, $this->imp, 'Falta tag "imp"');
+        if ($this->infCteComp != '') { // Caso seja um CTe tipo complemento de valores
+            $this->dom->appChild($this->infCte, $this->infCteComp, 'Falta tag "infCteComp"');
+        } elseif ($this->infCteAnu != '') { // Caso seja um CTe tipo anulação
+            $this->dom->appChild($this->infCte, $this->infCteAnu, 'Falta tag "infCteAnu"');
+        } elseif ($this->infCTeNorm != '') { // Caso seja um CTe tipo normal
+            $this->dom->appChild($this->infCte, $this->infCTeNorm, 'Falta tag "infCTeNorm"');
+            $this->dom->appChild($this->infCTeNorm, $this->infServico, 'Falta tag "infServico"');
+
+            foreach ($this->infDocRef as $infDocRef) {
+                $this->dom->appChild($this->infCTeNorm, $infDocRef, 'Falta tag "infDocRef"');
+            }
+
+            foreach ($this->seg as $seg) {
+                $this->dom->appChild($this->infCTeNorm, $seg, 'Falta tag "seg"');
+            }
+
+            if ($this->infModal != '') {
+                $this->dom->appChild($this->infCTeNorm, $this->infModal, 'Falta tag "infModal"');
+                $this->dom->appChild($this->rodo, $this->veic, 'Falta tag "veic"');
+                $this->dom->appChild($this->infModal, $this->rodo, 'Falta tag "rodo"');
+            }
+        }
 
         $this->dom->appChild($this->CTe, $this->infCte, 'Falta tag "CTe"');
         $this->dom->appChild($this->dom, $this->CTe, 'Falta tag "DOMDocument"');
@@ -584,17 +736,15 @@ class Make extends BaseMake
      * Gera o grupo básico: Informações do CT-e
      * #1
      * Nível: 0
-     *
-     * @param string $chave  Chave do CTe
-     * @param string $versao Versão do CTe
-     *
+     * @param  stdClass $std
      * @return \DOMElement
      */
-    public function infCteTag($chave = '', $versao = '')
+    public function taginfCTe($std)
     {
+        $chave = preg_replace('/[^0-9]/', '', $std->Id);
         $this->infCte = $this->dom->createElement('infCte');
         $this->infCte->setAttribute('Id', 'CTe' . $chave);
-        $this->infCte->setAttribute('versao', $versao);
+        $this->infCte->setAttribute('versao', $std->versao);
         return $this->infCte;
     }
 
@@ -602,138 +752,318 @@ class Make extends BaseMake
      * Gera as tags para o elemento: Identificação do CT-e
      * #4
      * Nível: 1
-     * Os parâmetros para esta função são todos os elementos da tag "ide" do tipo elemento (Ele = E|CE|A) e nível 2
-     * @param string $cUF Código da UF do emitente do CT-e
-     * @param string $cCT Código numérico que compõe a Chave de Acesso
-     * @param string $CFOP Código Fiscal de Operações e Prestações
-     * @param string $natOp Natureza da Operação
-     * @param string $mod Modelo do documento fiscal
-     * @param string $serie Série do CT-e
-     * @param string $nCT Número do CT-e
-     * @param string $dhEmi Data e hora de emissão do CT-e
-     * @param string $tpImp Formato de impressão do DACTE
-     * @param string $tpEmis Forma de emissão do CT-e
-     * @param string $cDV Digito Verificador da chave de acesso do CT-e
-     * @param string $tpAmb Tipo do Ambiente
-     * @param string $tpCTe Tipo do CT-e
-     * @param string $procEmi Identificador do processo de emissão do CT-e
-     * @param string $verProc Versão do processo de emissão
-     * @param string $refCTE Chave de acesso do CT-e referenciado
-     * @param string $cMunEnv Código do Município de envio do CT-e (de onde o documento foi transmitido)
-     * @param string $xMunEnv Nome do Município de envio do CT-e (de onde o documento foi transmitido)
-     * @param string $UFEnv Sigla da UF de envio do CT-e (de onde o documento foi transmitido)
-     * @param string $modal Modal
-     * @param string $tpServ Tipo do Serviço
-     * @param string $cMunIni Código do Município de início da prestação
-     * @param string $xMunIni Nome do Município do início da prestação
-     * @param string $UFIni UF do início da prestação
-     * @param string $cMunFim Código do Município de término da prestação
-     * @param string $xMunFim Nome do Município do término da prestação
-     * @param string $UFFim UF do término da prestação
-     * @param string $retira Indicador se o Recebedor retira no Aeroporto, Filial, Porto ou Estação de Destino?
-     * @param string $xDetRetira Detalhes do retira
-     * @param string $dhCont Data e Hora da entrada em contingência
-     * @param string $xJust Justificativa da entrada em contingência
+     * @param  stdClass $std
      * @return DOMElement|\DOMNode
      */
-    public function ideTag(
-        $cUF = '',
-        $cCT = '',
-        $CFOP = '',
-        $natOp = '',
-        $mod = '',
-        $serie = '',
-        $nCT = '',
-        $dhEmi = '',
-        $tpImp = '',
-        $tpEmis = '',
-        $cDV = '',
-        $tpAmb = '',
-        $tpCTe = '',
-        $procEmi = '',
-        $verProc = '',
-        $indGlobalizado = '',
-        $cMunEnv = '',
-        $xMunEnv = '',
-        $UFEnv = '',
-        $modal = '',
-        $tpServ = '',
-        $cMunIni = '',
-        $xMunIni = '',
-        $UFIni = '',
-        $cMunFim = '',
-        $xMunFim = '',
-        $UFFim = '',
-        $retira = '',
-        $xDetRetira = '',
-        $indIEToma = '',
-        $dhCont = '',
-        $xJust = ''
-    ) {
-        $this->tpAmb = $tpAmb;
+    public function tagide($std)
+    {
+        $this->tpAmb = $std->tpAmb;
+        $this->mod = $std->mod;
         $identificador = '#4 <ide> - ';
         $this->ide = $this->dom->createElement('ide');
         $this->dom->addChild(
             $this->ide,
             'cUF',
-            $cUF,
+            $std->cUF,
             true,
             $identificador . 'Código da UF do emitente do CT-e'
         );
         $this->dom->addChild(
             $this->ide,
             'cCT',
-            $cCT,
+            str_pad($std->cCT, 8, '0', STR_PAD_LEFT),
             true,
             $identificador . 'Código numérico que compõe a Chave de Acesso'
         );
         $this->dom->addChild(
             $this->ide,
             'CFOP',
-            $CFOP,
+            $std->CFOP,
             true,
             $identificador . 'Código Fiscal de Operações e Prestações'
         );
         $this->dom->addChild(
             $this->ide,
             'natOp',
-            $natOp,
+            Strings::replaceSpecialsChars(substr(trim($std->natOp), 0, 60)),
             true,
             $identificador . 'Natureza da Operação'
         );
         $this->dom->addChild(
             $this->ide,
             'mod',
-            $mod,
+            $std->mod,
             true,
             $identificador . 'Modelo do documento fiscal'
         );
-        $this->mod = $mod;
         $this->dom->addChild(
             $this->ide,
             'serie',
-            $serie,
+            $std->serie,
             true,
             $identificador . 'Série do CT-e'
         );
         $this->dom->addChild(
             $this->ide,
             'nCT',
-            $nCT,
+            $std->nCT,
             true,
             $identificador . 'Número do CT-e'
         );
         $this->dom->addChild(
             $this->ide,
             'dhEmi',
-            $dhEmi,
+            $std->dhEmi,
             true,
             $identificador . 'Data e hora de emissão do CT-e'
         );
         $this->dom->addChild(
             $this->ide,
             'tpImp',
-            $tpImp,
+            $std->tpImp,
+            true,
+            $identificador . 'Formato de impressão do DACTE'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'tpEmis',
+            $std->tpEmis,
+            true,
+            $identificador . 'Forma de emissão do CT-e'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'cDV',
+            $std->cDV,
+            true,
+            $identificador . 'Digito Verificador da chave de acesso do CT-e'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'tpAmb',
+            $std->tpAmb,
+            true,
+            $identificador . 'Tipo do Ambiente'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'tpCTe',
+            $std->tpCTe,
+            true,
+            $identificador . 'Tipo do CT-e'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'procEmi',
+            $std->procEmi,
+            true,
+            $identificador . 'Identificador do processo de emissão do CT-e'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'verProc',
+            $std->verProc,
+            true,
+            $identificador . 'Versão do processo de emissão'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'indGlobalizado',
+            $std->indGlobalizado,
+            false,
+            $identificador . 'Indicador de CT-e Globalizado'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'cMunEnv',
+            $std->cMunEnv,
+            true,
+            $identificador . 'Código do Município de envio do CT-e (de onde o documento foi transmitido)'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'xMunEnv',
+            $std->xMunEnv,
+            true,
+            $identificador . 'Nome do Município de envio do CT-e (de onde o documento foi transmitido)'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'UFEnv',
+            $std->UFEnv,
+            true,
+            $identificador . 'Sigla da UF de envio do CT-e (de onde o documento foi transmitido)'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'modal',
+            $std->modal,
+            true,
+            $identificador . 'Modal'
+        );
+        $this->modal = $std->modal;
+        $this->dom->addChild(
+            $this->ide,
+            'tpServ',
+            $std->tpServ,
+            true,
+            $identificador . 'Tipo do Serviço'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'cMunIni',
+            $std->cMunIni,
+            true,
+            $identificador . 'Nome do Município do início da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'xMunIni',
+            $std->xMunIni,
+            true,
+            $identificador . 'Nome do Município do início da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'UFIni',
+            $std->UFIni,
+            true,
+            $identificador . 'UF do início da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'cMunFim',
+            $std->cMunFim,
+            true,
+            $identificador . 'Código do Município de término da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'xMunFim',
+            $std->xMunFim,
+            true,
+            $identificador . 'Nome do Município do término da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'UFFim',
+            $std->UFFim,
+            true,
+            $identificador . 'UF do término da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'retira',
+            $std->retira,
+            true,
+            $identificador . 'Indicador se o Recebedor retira no Aeroporto, Filial, Porto ou Estação de Destino'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'xDetRetira',
+            $std->xDetRetira,
+            false,
+            $identificador . 'Detalhes do retira'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'indIEToma',
+            $std->indIEToma,
+            true,
+            $identificador . 'Indicador do papel do tomador na prestação do serviço'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'dhCont',
+            $std->dhCont,
+            false,
+            $identificador . 'Data e Hora da entrada em contingência'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'xJust',
+            Strings::replaceSpecialsChars(substr(trim($std->xJust), 0, 256)),
+            false,
+            $identificador . 'Justificativa da entrada em contingência'
+        );
+        $this->tpServ = $std->tpServ;
+        return $this->ide;
+    }
+
+    /**
+     * Gera as tags para o elemento: Identificação do CT-e OS
+     * #4
+     * Nível: 1
+     * Os parâmetros para esta função são todos os elementos da tag "ide" do tipo elemento (Ele = E|CE|A) e nível 2
+     *
+     * @return DOMElement|\DOMNode
+     */
+    public function tagideCTeOS($std)
+    {
+        $this->tpAmb = $std->tpAmb;
+        $identificador = '#4 <ide> - ';
+        $this->ide = $this->dom->createElement('ide');
+        $this->dom->addChild(
+            $this->ide,
+            'cUF',
+            $std->cUF,
+            true,
+            $identificador . 'Código da UF do emitente do CT-e'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'cCT',
+            $std->cCT,
+            true,
+            $identificador . 'Código numérico que compõe a Chave de Acesso'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'CFOP',
+            $std->CFOP,
+            true,
+            $identificador . 'Código Fiscal de Operações e Prestações'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'natOp',
+            $std->natOp,
+            true,
+            $identificador . 'Natureza da Operação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'mod',
+            $std->mod,
+            true,
+            $identificador . 'Modelo do documento fiscal'
+        );
+        $this->mod = $std->mod;
+        $this->dom->addChild(
+            $this->ide,
+            'serie',
+            $std->serie,
+            true,
+            $identificador . 'Série do CT-e'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'nCT',
+            $std->nCT,
+            true,
+            $identificador . 'Número do CT-e'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'dhEmi',
+            $std->dhEmi,
+            true,
+            $identificador . 'Data e hora de emissão do CT-e'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'tpImp',
+            $std->tpImp,
             true,
             $identificador . 'Formato de impressão do DACTE'
         );
@@ -761,56 +1091,49 @@ class Make extends BaseMake
         $this->dom->addChild(
             $this->ide,
             'tpCTe',
-            $tpCTe,
+            $std->tpCTe,
             true,
             $identificador . 'Tipo do CT-e'
         );
         $this->dom->addChild(
             $this->ide,
             'procEmi',
-            $procEmi,
+            $std->procEmi,
             true,
             $identificador . 'Identificador do processo de emissão do CT-e'
         );
         $this->dom->addChild(
             $this->ide,
             'verProc',
-            $verProc,
+            $std->verProc,
             true,
             $identificador . 'Versão do processo de emissão'
         );
         $this->dom->addChild(
             $this->ide,
-            'indGlobalizado',
-            $indGlobalizado,
-            false,
-            $identificador . 'Indicador de CT-e Globalizado'
-        );
-        $this->dom->addChild(
-            $this->ide,
             'cMunEnv',
-            $cMunEnv,
+            $std->cMunEnv,
             true,
             $identificador . 'Código do Município de envio do CT-e (de onde o documento foi transmitido)'
         );
         $this->dom->addChild(
             $this->ide,
             'xMunEnv',
-            $xMunEnv,
+            $std->xMunEnv,
             true,
             $identificador . 'Nome do Município de envio do CT-e (de onde o documento foi transmitido)'
         );
         $this->dom->addChild(
             $this->ide,
             'UFEnv',
-            $UFEnv,
+            $std->UFEnv,
             true,
             $identificador . 'Sigla da UF de envio do CT-e (de onde o documento foi transmitido)'
         );
         $this->dom->addChild(
             $this->ide,
             'modal',
-            $modal,
+            $std->modal,
             true,
             $identificador . 'Modal'
         );
@@ -818,89 +1141,92 @@ class Make extends BaseMake
         $this->dom->addChild(
             $this->ide,
             'tpServ',
-            $tpServ,
+            $std->tpServ,
             true,
             $identificador . 'Tipo do Serviço'
         );
         $this->dom->addChild(
             $this->ide,
-            'cMunIni',
-            $cMunIni,
-            true,
-            $identificador . 'Nome do Município do início da prestação'
-        );
-        $this->dom->addChild(
-            $this->ide,
-            'xMunIni',
-            $xMunIni,
-            true,
-            $identificador . 'Nome do Município do início da prestação'
-        );
-        $this->dom->addChild(
-            $this->ide,
-            'UFIni',
-            $UFIni,
-            true,
-            $identificador . 'UF do início da prestação'
-        );
-        $this->dom->addChild(
-            $this->ide,
-            'cMunFim',
-            $cMunFim,
-            true,
-            $identificador . 'Código do Município de término da prestação'
-        );
-        $this->dom->addChild(
-            $this->ide,
-            'xMunFim',
-            $xMunFim,
-            true,
-            $identificador . 'Nome do Município do término da prestação'
-        );
-        $this->dom->addChild(
-            $this->ide,
-            'UFFim',
-            $UFFim,
-            true,
-            $identificador . 'UF do término da prestação'
-        );
-        $this->dom->addChild(
-            $this->ide,
-            'retira',
-            $retira,
-            true,
-            $identificador . 'Indicador se o Recebedor retira no Aeroporto, Filial, Porto ou Estação de Destino'
-        );
-        $this->dom->addChild(
-            $this->ide,
-            'xDetRetira',
-            $xDetRetira,
-            false,
-            $identificador . 'Detalhes do retira'
-        );
-        $this->dom->addChild(
-            $this->ide,
             'indIEToma',
-            $indIEToma,
+            $std->indIEToma,
             true,
             $identificador . 'Indicador do papel do tomador na prestação do serviço'
         );
         $this->dom->addChild(
             $this->ide,
+            'cMunIni',
+            $std->cMunIni,
+            false,
+            $identificador . 'Nome do Município do início da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'xMunIni',
+            $std->xMunIni,
+            false,
+            $identificador . 'Nome do Município do início da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'UFIni',
+            $std->UFIni,
+            false,
+            $identificador . 'UF do início da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'cMunFim',
+            $std->cMunFim,
+            false,
+            $identificador . 'Código do Município de término da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'xMunFim',
+            $std->xMunFim,
+            false,
+            $identificador . 'Nome do Município do término da prestação'
+        );
+        $this->dom->addChild(
+            $this->ide,
+            'UFFim',
+            $std->UFFim,
+            false,
+            $identificador . 'UF do término da prestação'
+        );
+
+        $this->dom->addChild(
+            $this->ide,
             'dhCont',
-            $dhCont,
+            $std->dhCont,
             false,
             $identificador . 'Data e Hora da entrada em contingência'
         );
         $this->dom->addChild(
             $this->ide,
             'xJust',
-            $xJust,
+            $std->xJust,
             false,
             $identificador . 'Justificativa da entrada em contingência'
         );
-        $this->tpServ = $tpServ;
+        $this->tpServ = $std->tpServ;
         return $this->ide;
+    }
+
+    public function taginfPercurso($std)
+    {
+        $identificador = '#4 <infPercurso> - ';
+        $this->infPercurso[] = $this->dom->createElement('infPercurso');
+        $posicao = (integer)count($this->infPercurso) - 1;
+        $this->dom->addChild(
+            $this->infPercurso[$posicao],
+            'UFPer',
+            $std->uf,
+            true,
+            $identificador . 'Código da UF do percurso'
+        );
+
+        return $this->infPercurso[$posicao];
     }
 
     /**
@@ -908,21 +1234,18 @@ class Make extends BaseMake
      * e adiciona ao grupo ide
      * #35
      * Nível: 2
-     * Os parâmetros para esta função são todos os elementos da tag "toma3" do
-     * tipo elemento (Ele = E|CE|A) e nível 3
-     *
      * @param string $toma Tomador do Serviço
-     *
+     * @param  stdClass $std
      * @return \DOMElement
      */
-    public function toma3Tag($toma = '')
+    public function tagtoma3($std)
     {
         $identificador = '#35 <toma3> - ';
         $this->toma3 = $this->dom->createElement('toma3');
         $this->dom->addChild(
             $this->toma3,
             'toma',
-            $toma,
+            $std->toma,
             true,
             $identificador . 'Tomador do Serviço'
         );
@@ -934,52 +1257,33 @@ class Make extends BaseMake
      * do serviço no CT-e) e adiciona ao grupo ide
      * #37
      * Nível: 2
-     * Os parâmetros para esta função são todos os elementos da tag "toma4" do
-     * tipo elemento (Ele = E|CE|A) e nível 3
-     *
-     * @param string $toma  Tomador do Serviço
-     * @param string $CNPJ  Número do CNPJ
-     * @param string $CPF   Número do CPF
-     * @param string $IE    Inscrição Estadual
-     * @param string $xNome Razão Social ou Nome
-     * @param string $xFant Nome Fantasia
-     * @param string $fone  Telefone
-     * @param string $email Endereço de email
-     *
+     * @param  stdClass $std
      * @return \DOMElement
      */
-    public function toma4Tag(
-        $toma = '',
-        $CNPJ = '',
-        $CPF = '',
-        $IE = '',
-        $xNome = '',
-        $xFant = '',
-        $fone = '',
-        $email = ''
-    ) {
+    public function tagtoma4($std)
+    {
         $identificador = '#37 <toma4> - ';
         $this->toma4 = $this->dom->createElement('toma4');
         $this->dom->addChild(
             $this->toma4,
             'toma',
-            $toma,
+            $std->toma,
             true,
             $identificador . 'Tomador do Serviço'
         );
-        if ($CNPJ != '') {
+        if ($std->CNPJ != '') {
             $this->dom->addChild(
                 $this->toma4,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'Número do CNPJ'
             );
-        } elseif ($CPF != '') {
+        } elseif ($std->CPF != '') {
             $this->dom->addChild(
                 $this->toma4,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'Número do CPF'
             );
@@ -987,14 +1291,14 @@ class Make extends BaseMake
             $this->dom->addChild(
                 $this->toma4,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'Número do CNPJ'
             );
             $this->dom->addChild(
                 $this->toma4,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'Número do CPF'
             );
@@ -1002,35 +1306,35 @@ class Make extends BaseMake
         $this->dom->addChild(
             $this->toma4,
             'IE',
-            $IE,
+            $std->IE,
             false,
             $identificador . 'Inscrição Estadual'
         );
         $this->dom->addChild(
             $this->toma4,
             'xNome',
-            $xNome,
+            $std->xNome,
             true,
             $identificador . 'Razão Social ou Nome'
         );
         $this->dom->addChild(
             $this->toma4,
             'xFant',
-            $xFant,
+            $std->xFant,
             false,
             $identificador . 'Nome Fantasia'
         );
         $this->dom->addChild(
             $this->toma4,
             'fone',
-            $fone,
+            $std->fone,
             false,
             $identificador . 'Telefone'
         );
         $this->dom->addChild(
             $this->toma4,
             'email',
-            $email,
+            $std->email,
             false,
             $identificador . 'Endereço de email'
         );
@@ -1038,71 +1342,113 @@ class Make extends BaseMake
     }
 
     /**
-     * Gera as tags para o elemento: "enderToma" (Dados do endereço) e adiciona ao grupo "toma4"
-     * #45
-     * Nível: 3
-     * Os parâmetros para esta função são todos os elementos da tag "enderToma"
-     * do tipo elemento (Ele = E|CE|A) e nível 4
-     *
-     * @param string $xLgr    Logradouro
-     * @param string $nro     Número
-     * @param string $xCpl    Complemento
-     * @param string $xBairro Bairro
-     * @param string $cMun    Código do município (utilizar a tabela do IBGE)
-     * @param string $xMun    Nome do município
-     * @param string $CEP     CEP
-     * @param string $UF      Sigla da UF
-     * @param string $cPais   Código do país
-     * @param string $xPais   Nome do país
+     * Gera as tags para o elemento: toma4 (Indicador do "papel" do tomador
+     * do serviço no CT-e OS) e adiciona ao grupo ide
+     * #37
+     * Nível: 2
      *
      * @return \DOMElement
      */
-    public function enderTomaTag(
-        $xLgr = '',
-        $nro = '',
-        $xCpl = '',
-        $xBairro = '',
-        $cMun = '',
-        $xMun = '',
-        $CEP = '',
-        $UF = '',
-        $cPais = '',
-        $xPais = ''
-    ) {
-        $identificador = '#45 <enderToma> - ';
+    public function tagtoma4CTeOS($std)
+    {
+        $identificador = '#37 <toma> - ';
+        $this->toma = $this->dom->createElement('toma');
+        if ($std->CNPJ != '') {
+            $this->dom->addChild(
+                $this->toma,
+                'CNPJ',
+                $std->CNPJ,
+                true,
+                $identificador . 'Número do CNPJ'
+            );
+        } elseif ($std->CPF != '') {
+            $this->dom->addChild(
+                $this->toma,
+                'CPF',
+                $std->CPF,
+                true,
+                $identificador . 'Número do CPF'
+            );
+        } else {
+            $this->dom->addChild(
+                $this->toma,
+                'CNPJ',
+                $std->CNPJ,
+                true,
+                $identificador . 'Número do CNPJ'
+            );
+            $this->dom->addChild(
+                $this->toma,
+                'CPF',
+                $std->CPF,
+                true,
+                $identificador . 'Número do CPF'
+            );
+        }
+        $this->dom->addChild(
+            $this->toma,
+            'IE',
+            $std->IE,
+            false,
+            $identificador . 'Inscrição Estadual'
+        );
+        $this->dom->addChild(
+            $this->toma,
+            'xNome',
+            $std->xNome,
+            true,
+            $identificador . 'Razão Social ou Nome'
+        );
+        $this->dom->addChild(
+            $this->toma,
+            'xFant',
+            $std->xFant,
+            false,
+            $identificador . 'Nome Fantasia'
+        );
+        $this->dom->addChild(
+            $this->toma,
+            'fone',
+            $std->fone,
+            false,
+            $identificador . 'Telefone'
+        );
+
+
+        //Endereço Tomador
         $this->enderToma = $this->dom->createElement('enderToma');
         $this->dom->addChild(
             $this->enderToma,
             'xLgr',
-            $xLgr,
+            $std->xLgr,
             true,
             $identificador . 'Logradouro'
         );
         $this->dom->addChild(
             $this->enderToma,
             'nro',
-            $nro,
+            $std->nro,
             true,
             $identificador . 'Número'
         );
         $this->dom->addChild(
             $this->enderToma,
             'xCpl',
-            $xCpl,
+            $std->xCpl,
             false,
             $identificador . 'Complemento'
         );
         $this->dom->addChild(
             $this->enderToma,
             'xBairro',
-            $xBairro,
+            $std->xBairro,
             true,
             $identificador . 'Bairro'
         );
         $this->dom->addChild(
             $this->enderToma,
             'cMun',
-            $cMun,
+            $std->cMun,
             true,
             $identificador . 'Código do município (utilizar a tabela do IBGE)'
         );
@@ -1116,28 +1462,123 @@ class Make extends BaseMake
         $this->dom->addChild(
             $this->enderToma,
             'CEP',
-            $CEP,
+            $std->CEP,
             false,
             $identificador . 'CEP'
         );
         $this->dom->addChild(
             $this->enderToma,
             'UF',
-            $UF,
+            $std->UF,
             true,
             $identificador . 'Sigla da UF'
         );
         $this->dom->addChild(
             $this->enderToma,
             'cPais',
-            $cPais,
+            $std->cPais,
             false,
             $identificador . 'Código do país'
         );
         $this->dom->addChild(
             $this->enderToma,
             'xPais',
-            $xPais,
+            $std->xPais,
+            false,
+            $identificador . 'Nome do país'
+        );
+
+        $this->dom->appChild($this->toma, $this->enderToma, 'Falta tag "enderToma"');
+
+
+        $this->dom->addChild(
+            $this->toma,
+            'email',
+            $std->email,
+            false,
+            $identificador . 'Endereço de email'
+        );
+        return $this->toma;
+    }
+
+    /**
+     * Gera as tags para o elemento: "enderToma" (Dados do endereço) e adiciona ao grupo "toma4"
+     * #45
+     * Nível: 3
+     *
+     * @return \DOMElement
+     */
+    public function tagenderToma($std)
+    {
+        $identificador = '#45 <enderToma> - ';
+        $this->enderToma = $this->dom->createElement('enderToma');
+        $this->dom->addChild(
+            $this->enderToma,
+            'xLgr',
+            $std->xLgr,
+            true,
+            $identificador . 'Logradouro'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'nro',
+            $std->nro,
+            true,
+            $identificador . 'Número'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'xCpl',
+            $std->xCpl,
+            false,
+            $identificador . 'Complemento'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'xBairro',
+            $std->xBairro,
+            true,
+            $identificador . 'Bairro'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'cMun',
+            $std->cMun,
+            true,
+            $identificador . 'Código do município (utilizar a tabela do IBGE)'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'xMun',
+            $std->xMun,
+            true,
+            $identificador . 'Nome do município'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'CEP',
+            $std->CEP,
+            false,
+            $identificador . 'CEP'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'UF',
+            $std->UF,
+            true,
+            $identificador . 'Sigla da UF'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'cPais',
+            $std->cPais,
+            false,
+            $identificador . 'Código do país'
+        );
+        $this->dom->addChild(
+            $this->enderToma,
+            'xPais',
+            $std->xPais,
             false,
             $identificador . 'Nome do país'
         );
@@ -1148,61 +1589,96 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "compl" (Dados complementares do CT-e para fins operacionais ou comerciais)
      * #59
      * Nível: 1
-     * Os parâmetros para esta função são todos os elementos da tag "compl" do
-     * tipo elemento (Ele = E|CE|A) e nível 2
-     *
-     * @param string $xCaracAd  Característica adicional do transporte
-     * @param string $xCaracSer Característica adicional do serviço
-     * @param string $xEmi      Funcionário emissor do CTe
-     * @param string $origCalc  Município de origem para efeito de cálculo do frete
-     * @param string $destCalc  Município de destino para efeito de cálculo do frete
-     * @param string $xObs      Observações Gerais
      *
      * @return \DOMElement
      */
-    public function complTag($xCaracAd = '', $xCaracSer = '', $xEmi = '', $origCalc = '', $destCalc = '', $xObs = '')
+    public function tagcompl($std)
     {
         $identificador = '#59 <compl> - ';
-        $this->compl = $this->dom->createElement('compl');
+        if ($this->compl == '') {
+            $this->compl = $this->dom->createElement('compl');
+        }
         $this->dom->addChild(
             $this->compl,
             'xCaracAd',
-            $xCaracAd,
+            $std->xCaracAd,
             false,
             $identificador . 'Característica adicional do transporte'
         );
         $this->dom->addChild(
             $this->compl,
             'xCaracSer',
-            $xCaracSer,
+            $std->xCaracSer,
             false,
             $identificador . 'Característica adicional do serviço'
         );
         $this->dom->addChild(
             $this->compl,
             'xEmi',
-            $xEmi,
+            $std->xEmi,
             false,
             $identificador . 'Funcionário emissor do CTe'
         );
         $this->dom->addChild(
             $this->compl,
             'origCalc',
-            $origCalc,
+            $std->origCalc,
             false,
             $identificador . 'Município de origem para efeito de cálculo do frete'
         );
         $this->dom->addChild(
             $this->compl,
             'destCalc',
-            $destCalc,
+            $std->destCalc,
             false,
             $identificador . 'Município de destino para efeito de cálculo do frete'
         );
         $this->dom->addChild(
             $this->compl,
             'xObs',
-            $xObs,
+            $std->xObs,
+            false,
+            $identificador . 'Observações Gerais'
+        );
+        return $this->compl;
+    }
+
+    /**
+     * Gera as tags para o elemento: "compl" (Dados complementares do CT-e OS para fins operacionais ou comerciais)
+     * #59
+     * Nível: 1
+     *
+     * @return \DOMElement
+     */
+    public function tagcomplCTeOs($std)
+    {
+        $identificador = '#59 <compl> - ';
+        $this->compl = $this->dom->createElement('compl');
+        $this->dom->addChild(
+            $this->compl,
+            'xCaracAd',
+            $std->xCaracAd,
+            false,
+            $identificador . 'Característica adicional do transporte'
+        );
+        $this->dom->addChild(
+            $this->compl,
+            'xCaracSer',
+            $std->xCaracSer,
+            false,
+            $identificador . 'Característica adicional do serviço'
+        );
+        $this->dom->addChild(
+            $this->compl,
+            'xEmi',
+            $std->xEmi,
+            false,
+            $identificador . 'Funcionário emissor do CTe'
+        );
+        $this->dom->addChild(
+            $this->compl,
+            'xObs',
+            $std->xObs,
             false,
             $identificador . 'Observações Gerais'
         );
@@ -1216,34 +1692,30 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "fluxo" do
      * tipo elemento (Ele = E|CE|A) e nível 3
      *
-     * @param string $xOrig Sigla ou código interno da Filial/Porto/Estação/ Aeroporto de Origem
-     * @param string $xDest Sigla ou código interno da Filial/Porto/Estação/Aeroporto de Destino
-     * @param string $xRota Código da Rota de Entrega
-     *
      * @return \DOMElement
      */
-    public function fluxoTag($xOrig = '', $xDest = '', $xRota = '')
+    public function tagfluxo($std)
     {
         $identificador = '#63 <fluxo> - ';
         $this->fluxo = $this->dom->createElement('fluxo');
         $this->dom->addChild(
             $this->fluxo,
             'xOrig',
-            $xOrig,
+            $std->xOrig,
             false,
             $identificador . 'Sigla ou código interno da Filial/Porto/Estação/ Aeroporto de Origem'
         );
         $this->dom->addChild(
             $this->fluxo,
             'xDest',
-            $xDest,
+            $std->xDest,
             false,
             $identificador . 'Sigla ou código interno da Filial/Porto/Estação/Aeroporto de Destino'
         );
         $this->dom->addChild(
             $this->fluxo,
             'xRota',
-            $xRota,
+            $std->xRota,
             false,
             $identificador . 'Código da Rota de Entrega'
         );
@@ -1254,14 +1726,10 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "pass"
      * #65
      * Nível: 3
-     * Os parâmetros para esta função são todos os elementos da tag "pass" do
-     * tipo elemento (Ele = E|CE|A) e nível 4
-     *
-     * @param string $xPass Sigla ou código interno da Filial/Porto/Estação/Aeroporto de Passagem
      *
      * @return \DOMElement
      */
-    public function passTag($xPass = '')
+    public function tagpass($std)
     {
         $identificador = '#65 <pass> - ';
         $this->pass[] = $this->dom->createElement('pass');
@@ -1269,7 +1737,7 @@ class Make extends BaseMake
         $this->dom->addChild(
             $this->pass[$posicao],
             'xPass',
-            $xPass,
+            $std->xPass,
             false,
             $identificador . 'Sigla ou código interno da Filial/Porto/Estação/Aeroporto de Passagem'
         );
@@ -1280,21 +1748,17 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "semData" (Entrega sem data definida)
      * #70
      * Nível: 3
-     * Os parâmetros para esta função são todos os elementos da tag "semData" do
-     * tipo elemento (Ele = E|CE|A) e nível 4
-     *
-     * @param string $tpPer Tipo de data/período programado para entrega
      *
      * @return \DOMElement
      */
-    public function semDataTag($tpPer = '')
+    public function tagsemData($std)
     {
         $identificador = '#70 <semData> - ';
         $this->semData = $this->dom->createElement('semData');
         $this->dom->addChild(
             $this->semData,
             'tpPer',
-            $tpPer,
+            $std->tpPer,
             true,
             $identificador . 'Tipo de data/período programado para entrega'
         );
@@ -1305,29 +1769,24 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "comData" (Entrega com data definida)
      * #72
      * Nível: 3
-     * Os parâmetros para esta função são todos os elementos da tag "comData" do
-     * tipo elemento (Ele = E|CE|A) e nível 4
-     *
-     * @param string $tpPer Tipo de data/período programado para entrega
-     * @param string $dProg Data programada
      *
      * @return \DOMElement
      */
-    public function comDataTag($tpPer = '', $dProg = '')
+    public function tagcomData($std)
     {
         $identificador = '#72 <comData> - ';
         $this->comData = $this->dom->createElement('comData');
         $this->dom->addChild(
             $this->comData,
             'tpPer',
-            $tpPer,
+            $std->tpPer,
             true,
             $identificador . 'Tipo de data/período programado para entrega'
         );
         $this->dom->addChild(
             $this->comData,
             'dProg',
-            $dProg,
+            $std->dProg,
             true,
             $identificador . 'Data programada'
         );
@@ -1338,37 +1797,31 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "noPeriodo" (Entrega no período definido)
      * #75
      * Nível: 3
-     * Os parâmetros para esta função são todos os elementos da tag "noPeriodo" do tipo
-     * elemento (Ele = E|CE|A) e nível 4
-     *
-     * @param string $tpPer Tipo de data/período programado para entrega
-     * @param string $dIni  Data inicial
-     * @param string $dFim  Data final
      *
      * @return \DOMElement
      */
-    public function noPeriodoTag($tpPer = '', $dIni = '', $dFim = '')
+    public function tagnoPeriodo($std)
     {
         $identificador = '#75 <noPeriodo> - ';
         $this->noPeriodo = $this->dom->createElement('noPeriodo');
         $this->dom->addChild(
             $this->noPeriodo,
             'tpPer',
-            $tpPer,
+            $std->tpPer,
             true,
             $identificador . 'Tipo de data/período programado para entrega'
         );
         $this->dom->addChild(
             $this->noPeriodo,
             'dIni',
-            $dIni,
+            $std->dIni,
             true,
             $identificador . 'Data inicial'
         );
         $this->dom->addChild(
             $this->noPeriodo,
             'dFim',
-            $dFim,
+            $std->dFim,
             true,
             $identificador . 'Data final'
         );
@@ -1382,18 +1835,16 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "semHora" do
      * tipo elemento (Ele = E|CE|A) e nível 4
      *
-     * @param string $tpHor Tipo de hora
-     *
      * @return \DOMElement
      */
-    public function semHoraTag($tpHor = '')
+    public function tagsemHora($std)
     {
         $identificador = '#79 <semHora> - ';
         $this->semHora = $this->dom->createElement('semHora');
         $this->dom->addChild(
             $this->semHora,
             'tpHor',
-            $tpHor,
+            $std->tpHor,
             true,
             $identificador . 'Tipo de hora'
         );
@@ -1407,26 +1858,23 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "comHora" do
      * tipo elemento (Ele = E|CE|A) e nível 4
      *
-     * @param string $tpHor Tipo de hora
-     * @param string $hProg Hora programada
-     *
      * @return \DOMElement
      */
-    public function comHoraTag($tpHor = '', $hProg = '')
+    public function tagcomHora($std)
     {
         $identificador = '#81 <comHora> - ';
         $this->comHora = $this->dom->createElement('comHora');
         $this->dom->addChild(
             $this->comHora,
             'tpHor',
-            $tpHor,
+            $std->tpHor,
             true,
             $identificador . 'Tipo de hora'
         );
         $this->dom->addChild(
             $this->comHora,
             'hProg',
-            $hProg,
+            $std->hProg,
             true,
             $identificador . 'Hora programada'
         );
@@ -1440,34 +1888,30 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "noInter" do
      * tipo elemento (Ele = E|CE|A) e nível 4
      *
-     * @param string $tpHor Tipo de hora
-     * @param string $hIni  Hora inicial
-     * @param string $hFim  Hora final
-     *
      * @return \DOMElement
      */
-    public function noInterTag($tpHor = '', $hIni = '', $hFim = '')
+    public function tagnoInter($std)
     {
         $identificador = '#84 <noInter> - ';
         $this->noInter = $this->dom->createElement('noInter');
         $this->dom->addChild(
             $this->noInter,
             'tpHor',
-            $tpHor,
+            $std->tpHor,
             true,
             $identificador . 'Tipo de hora'
         );
         $this->dom->addChild(
             $this->noInter,
             'hIni',
-            $hIni,
+            $std->hIni,
             true,
             $identificador . 'Hora inicial'
         );
         $this->dom->addChild(
             $this->noInter,
             'hFim',
-            $hFim,
+            $std->hFim,
             true,
             $identificador . 'Hora final'
         );
@@ -1481,22 +1925,19 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "ObsCont" do
      * tipo elemento (Ele = E|CE|A) e nível 3
      *
-     * @param string $xCampo Identificação do campo
-     * @param string $xTexto Conteúdo do campo
-     *
      * @return boolean
      */
-    public function obsContTag($xCampo = '', $xTexto = '')
+    public function tagobsCont($std)
     {
         $identificador = '#91 <ObsCont> - ';
-        $posicao = (integer) count($this->obsCont) - 1;
         if (count($this->obsCont) <= 10) {
             $this->obsCont[] = $this->dom->createElement('ObsCont');
-            $this->obsCont[$posicao]->setAttribute('xCampo', $xCampo);
+            $posicao = (integer) count($this->obsCont) - 1;
+            $this->obsCont[$posicao]->setAttribute('xCampo', $std->xCampo);
             $this->dom->addChild(
                 $this->obsCont[$posicao],
                 'xTexto',
-                $xTexto,
+                $std->xTexto,
                 true,
                 $identificador . 'Conteúdo do campo'
             );
@@ -1517,22 +1958,19 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "ObsFisco" do tipo
      * elemento (Ele = E|CE|A) e nível 3
      *
-     * @param string $xCampo Identificação do campo
-     * @param string $xTexto Conteúdo do campo
-     *
      * @return boolean
      */
-    public function obsFiscoTag($xCampo = '', $xTexto = '')
+    public function tagobsFisco($std)
     {
         $identificador = '#94 <ObsFisco> - ';
         $posicao = (integer) count($this->obsFisco) - 1;
         if (count($this->obsFisco) <= 10) {
             $this->obsFisco[] = $this->dom->createElement('obsFisco');
-            $this->obsFisco[$posicao]->setAttribute('xCampo', $xCampo);
+            $this->obsFisco[$posicao]->setAttribute('xCampo', $std->xCampo);
             $this->dom->addChild(
                 $this->obsFisco[$posicao],
                 'xTexto',
-                $xTexto,
+                $std->xTexto,
                 true,
                 $identificador . 'Conteúdo do campo'
             );
@@ -1553,49 +1991,44 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "emit" do
      * tipo elemento (Ele = E|CE|A) e nível 2
      *
-     * @param string $CNPJ  CNPJ do emitente
-     * @param string $IE    Inscrição Estadual do Emitente
-     * @param string $xNome Razão social ou Nome do emitente
-     * @param string $xFant Nome fantasia
-     *
      * @return \DOMElement
      */
-    public function emitTag($CNPJ = '', $IE = '', $IEST = '', $xNome = '', $xFant = '')
+    public function tagemit($std)
     {
         $identificador = '#97 <emit> - ';
         $this->emit = $this->dom->createElement('emit');
         $this->dom->addChild(
             $this->emit,
             'CNPJ',
-            $CNPJ,
+            $std->CNPJ,
             true,
             $identificador . 'CNPJ do emitente'
         );
         $this->dom->addChild(
             $this->emit,
             'IE',
-            $IE,
+            Strings::onlyNumbers($std->IE),
             true,
             $identificador . 'Inscrição Estadual do Emitente'
         );
         $this->dom->addChild(
             $this->emit,
             'IEST',
-            $IEST,
+            Strings::onlyNumbers($std->IEST),
             false,
             $identificador . 'Inscrição Estadual do Substituto Tributário'
         );
         $this->dom->addChild(
             $this->emit,
             'xNome',
-            $xNome,
+            $std->xNome,
             true,
             $identificador . 'Razão social ou Nome do emitente'
         );
         $this->dom->addChild(
             $this->emit,
             'xFant',
-            $xFant,
+            $std->xFant,
             false,
             $identificador . 'Nome fantasia'
         );
@@ -1609,91 +2042,72 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "enderEmit" do
      * tipo elemento (Ele = E|CE|A) e nível 3
      *
-     * @param string $xLgr    Logradouro
-     * @param string $nro     Número
-     * @param string $xCpl    Complemento
-     * @param string $xBairro Bairro
-     * @param string $cMun    Código do município (utilizar a tabela do IBGE)
-     * @param string $xMun    Nome do município
-     * @param string $CEP     CEP
-     * @param string $UF      Sigla da UF
-     * @param string $fone    Telefone
-     *
      * @return \DOMElement
      */
-    public function enderEmitTag(
-        $xLgr = '',
-        $nro = '',
-        $xCpl = '',
-        $xBairro = '',
-        $cMun = '',
-        $xMun = '',
-        $CEP = '',
-        $UF = '',
-        $fone = ''
-    ) {
+    public function tagenderEmit($std)
+    {
         $identificador = '#102 <enderEmit> - ';
         $this->enderEmit = $this->dom->createElement('enderEmit');
         $this->dom->addChild(
             $this->enderEmit,
             'xLgr',
-            $xLgr,
+            $std->xLgr,
             true,
             $identificador . 'Logradouro'
         );
         $this->dom->addChild(
             $this->enderEmit,
             'nro',
-            $nro,
+            $std->nro,
             true,
             $identificador . 'Número'
         );
         $this->dom->addChild(
             $this->enderEmit,
             'xCpl',
-            $xCpl,
+            $std->xCpl,
             false,
             $identificador . 'Complemento'
         );
         $this->dom->addChild(
             $this->enderEmit,
             'xBairro',
-            $xBairro,
+            $std->xBairro,
             true,
             $identificador . 'Bairro'
         );
         $this->dom->addChild(
             $this->enderEmit,
             'cMun',
-            $cMun,
+            $std->cMun,
             true,
             $identificador . 'Código do município'
         );
         $this->dom->addChild(
             $this->enderEmit,
             'xMun',
-            $xMun,
+            $std->xMun,
             true,
             $identificador . 'Nome do município'
         );
         $this->dom->addChild(
             $this->enderEmit,
             'CEP',
-            $CEP,
+            $std->CEP,
             false,
             $identificador . 'CEP'
         );
         $this->dom->addChild(
             $this->enderEmit,
             'UF',
-            $UF,
+            $std->UF,
             true,
             $identificador . 'Sigla da UF'
         );
         $this->dom->addChild(
             $this->enderEmit,
             'fone',
-            $fone,
+            $std->fone,
             false,
             $identificador . 'Telefone'
         );
@@ -1708,33 +2122,25 @@ class Make extends BaseMake
      * Os parâmetros para esta função são todos os elementos da tag "rem" do
      * tipo elemento (Ele = E|CE|A) e nível 2
      *
-     * @param string $CNPJ  Número do CNPJ
-     * @param string $CPF   Número do CPF
-     * @param string $IE    Inscrição Estadual
-     * @param string $xNome Razão social ou nome do remetente
-     * @param string $xFant Nome fantasia
-     * @param string $fone  Telefone
-     * @param string $email Endereço de email
-     *
      * @return \DOMElement
      */
-    public function remTag($CNPJ = '', $CPF = '', $IE = '', $xNome = '', $xFant = '', $fone = '', $email = '')
+    public function tagrem($std)
     {
         $identificador = '#97 <rem> - ';
         $this->rem = $this->dom->createElement('rem');
-        if ($CNPJ != '') {
+        if ($std->CNPJ != '') {
             $this->dom->addChild(
                 $this->rem,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'CNPJ do Remente'
             );
-        } elseif ($CPF != '') {
+        } elseif ($std->CPF != '') {
             $this->dom->addChild(
                 $this->rem,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'CPF do Remente'
             );
@@ -1742,14 +2148,14 @@ class Make extends BaseMake
             $this->dom->addChild(
                 $this->rem,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'CNPJ do Remente'
             );
             $this->dom->addChild(
                 $this->rem,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'CPF do remente'
             );
@@ -1757,35 +2163,39 @@ class Make extends BaseMake
         $this->dom->addChild(
             $this->rem,
             'IE',
-            $IE,
+            $std->IE,
             true,
             $identificador . 'Inscrição Estadual do remente'
         );
+        $xNome = $std->xNome;
+        if ($this->tpAmb == '2') {
+            $xNome = 'CT-E EMITIDO EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+        }
         $this->dom->addChild(
             $this->rem,
             'xNome',
-            $xNome,
+            Strings::replaceSpecialsChars(substr(trim($xNome), 0, 60)),
             true,
             $identificador . 'Razão social ou Nome do remente'
         );
         $this->dom->addChild(
             $this->rem,
             'xFant',
-            $xFant,
+            $std->xFant,
             false,
             $identificador . 'Nome fantasia'
         );
         $this->dom->addChild(
             $this->rem,
             'fone',
-            $fone,
+            $std->fone,
             false,
             $identificador . 'Telefone'
         );
         $this->dom->addChild(
             $this->rem,
             'email',
-            $email,
+            $std->email,
             false,
             $identificador . 'Endereço de email'
         );
@@ -1794,105 +2204,84 @@ class Make extends BaseMake
 
     /**
      * Gera as tags para o elemento: "enderReme" (Dados do endereço)
-     * #119
+     * #120
      * Nível: 2
      * Os parâmetros para esta função são todos os elementos da tag "enderReme" do
      * tipo elemento (Ele = E|CE|A) e nível 3
      *
-     * @param string $xLgr    Logradouro
-     * @param string $nro     Número
-     * @param string $xCpl    Complemento
-     * @param string $xBairro Bairro
-     * @param string $cMun    Código do município (utilizar a tabela do IBGE)
-     * @param string $xMun    Nome do município
-     * @param string $CEP     CEP
-     * @param string $UF      Sigla da UF
-     * @param string $cPais   Código do país
-     * @param string $xPais   Nome do país
-     *
      * @return \DOMElement
      */
-    public function enderRemeTag(
-        $xLgr = '',
-        $nro = '',
-        $xCpl = '',
-        $xBairro = '',
-        $cMun = '',
-        $xMun = '',
-        $CEP = '',
-        $UF = '',
-        $cPais = '',
-        $xPais = ''
-    ) {
+    public function tagenderReme($std)
+    {
         $identificador = '#119 <enderReme> - ';
         $this->enderReme = $this->dom->createElement('enderReme');
         $this->dom->addChild(
             $this->enderReme,
             'xLgr',
-            $xLgr,
+            $std->xLgr,
             true,
             $identificador . 'Logradouro'
         );
         $this->dom->addChild(
             $this->enderReme,
             'nro',
-            $nro,
+            $std->nro,
             true,
             $identificador . 'Número'
         );
         $this->dom->addChild(
             $this->enderReme,
             'xCpl',
-            $xCpl,
+            $std->xCpl,
             false,
             $identificador . 'Complemento'
         );
         $this->dom->addChild(
             $this->enderReme,
             'xBairro',
-            $xBairro,
+            $std->xBairro,
             true,
             $identificador . 'Bairro'
         );
         $this->dom->addChild(
             $this->enderReme,
             'cMun',
-            $cMun,
+            $std->cMun,
             true,
             $identificador . 'Código do município (utilizar a tabela do IBGE)'
         );
         $this->dom->addChild(
             $this->enderReme,
             'xMun',
-            $xMun,
+            $std->xMun,
             true,
             $identificador . 'Nome do município'
         );
         $this->dom->addChild(
             $this->enderReme,
             'CEP',
-            $CEP,
+            $std->CEP,
             false,
             $identificador . 'CEP'
         );
         $this->dom->addChild(
             $this->enderReme,
             'UF',
-            $UF,
+            $std->UF,
             true,
             $identificador . 'Sigla da UF'
         );
         $this->dom->addChild(
             $this->enderReme,
             'cPais',
-            $cPais,
+            $std->cPais,
             false,
             $identificador . 'Código do país'
         );
         $this->dom->addChild(
             $this->enderReme,
             'xPais',
-            $xPais,
+            $std->xPais,
             false,
             $identificador . 'Nome do país'
         );
@@ -1904,37 +2293,30 @@ class Make extends BaseMake
 
     /**
      * Gera as tags para o elemento: "exped" (Informações do Expedidor da Carga)
-     * #142
+     * #132
      * Nível: 1
      * Os parâmetros para esta função são todos os elementos da tag "exped" do
      * tipo elemento (Ele = E|CE|A) e nível 2
      *
-     * @param string $CNPJ Número do CNPJ
-     * @param string $CPF Número do CPF
-     * @param string $IE Inscrição Estadual
-     * @param string $xNome Razão Social ou Nome
-     * @param string $fone Telefone
-     * @param string $email Endereço de email
-     *
      * @return \DOMElement
      */
-    public function expedTag($CNPJ = '', $CPF = '', $IE = '', $xNome = '', $fone = '', $email = '')
+    public function tagexped($std)
     {
         $identificador = '#142 <exped> - ';
         $this->exped = $this->dom->createElement('exped');
-        if ($CNPJ != '') {
+        if ($std->CNPJ != '') {
             $this->dom->addChild(
                 $this->exped,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'Número do CNPJ'
             );
-        } elseif ($CPF != '') {
+        } elseif ($std->CPF != '') {
             $this->dom->addChild(
                 $this->exped,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'Número do CPF'
             );
@@ -1942,43 +2324,49 @@ class Make extends BaseMake
             $this->dom->addChild(
                 $this->exped,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'Número do CNPJ'
             );
             $this->dom->addChild(
                 $this->exped,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'Número do CPF'
             );
         }
-        $this->dom->addChild(
-            $this->exped,
-            'IE',
-            $IE,
-            true,
-            $identificador . 'Inscrição Estadual'
-        );
+        if (!empty($std->IE)) {
+            $this->dom->addChild(
+                $this->exped,
+                'IE',
+                $std->IE,
+                true,
+                $identificador . 'Inscrição Estadual'
+            );
+        }
+        $xNome = $std->xNome;
+        if ($this->tpAmb == '2') {
+            $xNome = 'CT-E EMITIDO EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+        }
         $this->dom->addChild(
             $this->exped,
             'xNome',
-            $xNome,
+            Strings::replaceSpecialsChars(substr(trim($xNome), 0, 60)),
             true,
             $identificador . 'Razão social ou Nome'
         );
         $this->dom->addChild(
             $this->exped,
             'fone',
-            $fone,
+            $std->fone,
             false,
             $identificador . 'Telefone'
         );
         $this->dom->addChild(
             $this->exped,
             'email',
-            $email,
+            $std->email,
             false,
             $identificador . 'Endereço de email'
         );
@@ -1987,105 +2375,84 @@ class Make extends BaseMake
 
     /**
      * Gera as tags para o elemento: "enderExped" (Dados do endereço)
-     * #148
+     * #138
      * Nível: 2
      * Os parâmetros para esta função são todos os elementos da tag "enderExped" do
      * tipo elemento (Ele = E|CE|A) e nível 3
      *
-     * @param string $xLgr Logradouro
-     * @param string $nro Número
-     * @param string $xCpl Complemento
-     * @param string $xBairro Bairro
-     * @param string $cMun Código do município (utilizar a tabela do IBGE)
-     * @param string $xMun Nome do município
-     * @param string $CEP CEP
-     * @param string $UF Sigla da UF
-     * @param string $cPais Código do país
-     * @param string $xPais Nome do país
-     *
      * @return \DOMElement
      */
-    public function enderExpedTag(
-        $xLgr = '',
-        $nro = '',
-        $xCpl = '',
-        $xBairro = '',
-        $cMun = '',
-        $xMun = '',
-        $CEP = '',
-        $UF = '',
-        $cPais = '',
-        $xPais = ''
-    ) {
+    public function tagenderExped($std)
+    {
         $identificador = '#148 <enderExped> - ';
         $this->enderExped = $this->dom->createElement('enderExped');
         $this->dom->addChild(
             $this->enderExped,
             'xLgr',
-            $xLgr,
+            $std->xLgr,
             true,
             $identificador . 'Logradouro'
         );
         $this->dom->addChild(
             $this->enderExped,
             'nro',
-            $nro,
+            $std->nro,
             true,
             $identificador . 'Número'
         );
         $this->dom->addChild(
             $this->enderExped,
             'xCpl',
-            $xCpl,
+            $std->xCpl,
             false,
             $identificador . 'Complemento'
         );
         $this->dom->addChild(
             $this->enderExped,
             'xBairro',
-            $xBairro,
+            $std->xBairro,
             true,
             $identificador . 'Bairro'
         );
         $this->dom->addChild(
             $this->enderExped,
             'cMun',
-            $cMun,
+            $std->cMun,
             true,
             $identificador . 'Código do município (utilizar a tabela do IBGE)'
         );
         $this->dom->addChild(
             $this->enderExped,
             'xMun',
-            $xMun,
+            $std->xMun,
             true,
             $identificador . 'Nome do município'
         );
         $this->dom->addChild(
             $this->enderExped,
             'CEP',
-            $CEP,
+            $std->CEP,
             false,
             $identificador . 'CEP'
         );
         $this->dom->addChild(
             $this->enderExped,
             'UF',
-            $UF,
+            $std->UF,
             true,
             $identificador . 'Sigla da UF'
         );
         $this->dom->addChild(
             $this->enderExped,
             'cPais',
-            $cPais,
+            $std->cPais,
             false,
             $identificador . 'Código do país'
         );
         $this->dom->addChild(
             $this->enderExped,
             'xPais',
-            $xPais,
+            $std->xPais,
             false,
             $identificador . 'Nome do país'
         );
@@ -2096,37 +2463,30 @@ class Make extends BaseMake
 
     /**
      * Gera as tags para o elemento: "receb" (Informações do Recebedor da Carga)
-     * #160
+     * #150
      * Nível: 1
      * Os parâmetros para esta função são todos os elementos da tag "receb" do
      * tipo elemento (Ele = E|CE|A) e nível 2
      *
-     * @param string $CNPJ Número do CNPJ
-     * @param string $CPF Número do CPF
-     * @param string $IE Inscrição Estadual
-     * @param string $xNome Razão Social ou Nome
-     * @param string $fone Telefone
-     * @param string $email Endereço de email
-     *
      * @return \DOMElement
      */
-    public function recebTag($CNPJ = '', $CPF = '', $IE = '', $xNome = '', $fone = '', $email = '')
+    public function tagreceb($std)
     {
         $identificador = '#160 <receb> - ';
         $this->receb = $this->dom->createElement('receb');
-        if ($CNPJ != '') {
+        if ($std->CNPJ != '') {
             $this->dom->addChild(
                 $this->receb,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'Número do CNPJ'
             );
-        } elseif ($CPF != '') {
+        } elseif ($std->CPF != '') {
             $this->dom->addChild(
                 $this->receb,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'Número do CPF'
             );
@@ -2134,43 +2494,49 @@ class Make extends BaseMake
             $this->dom->addChild(
                 $this->receb,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'Número do CNPJ'
             );
             $this->dom->addChild(
                 $this->receb,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'Número do CPF'
             );
         }
-        $this->dom->addChild(
-            $this->receb,
-            'IE',
-            $IE,
-            true,
-            $identificador . 'Inscrição Estadual'
-        );
+        if (!empty($std->IE)) {
+            $this->dom->addChild(
+                $this->receb,
+                'IE',
+                $std->IE,
+                true,
+                $identificador . 'Inscrição Estadual'
+            );
+        }
+        $xNome = $std->xNome;
+        if ($this->tpAmb == '2') {
+            $xNome = 'CT-E EMITIDO EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+        }
         $this->dom->addChild(
             $this->receb,
             'xNome',
-            $xNome,
+            Strings::replaceSpecialsChars(substr(trim($xNome), 0, 60)),
             true,
             $identificador . 'Razão social ou Nome'
         );
         $this->dom->addChild(
             $this->receb,
             'fone',
-            $fone,
+            $std->fone,
             false,
             $identificador . 'Telefone'
         );
         $this->dom->addChild(
             $this->receb,
             'email',
-            $email,
+            $std->email,
             false,
             $identificador . 'Endereço de email'
         );
@@ -2179,105 +2545,84 @@ class Make extends BaseMake
 
     /**
      * Gera as tags para o elemento: "enderReceb" (Informações do Recebedor da Carga)
-     * #166
+     * #156
      * Nível: 2
      * Os parâmetros para esta função são todos os elementos da tag "enderReceb" do
      * tipo elemento (Ele = E|CE|A) e nível 3
      *
-     * @param string $xLgr Logradouro
-     * @param string $nro Número
-     * @param string $xCpl Complemento
-     * @param string $xBairro Bairro
-     * @param string $cMun Código do município (utilizar a tabela do IBGE)
-     * @param string $xMun Nome do município
-     * @param string $CEP CEP
-     * @param string $UF Sigla da UF
-     * @param string $cPais Código do país
-     * @param string $xPais Nome do país
-     *
      * @return \DOMElement
      */
-    public function enderRecebTag(
-        $xLgr = '',
-        $nro = '',
-        $xCpl = '',
-        $xBairro = '',
-        $cMun = '',
-        $xMun = '',
-        $CEP = '',
-        $UF = '',
-        $cPais = '',
-        $xPais = ''
-    ) {
+    public function tagenderReceb($std)
+    {
         $identificador = '#160 <enderReceb> - ';
         $this->enderReceb = $this->dom->createElement('enderReceb');
         $this->dom->addChild(
             $this->enderReceb,
             'xLgr',
-            $xLgr,
+            $std->xLgr,
             true,
             $identificador . 'Logradouro'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'nro',
-            $nro,
+            $std->nro,
             true,
             $identificador . 'Número'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'xCpl',
-            $xCpl,
+            $std->xCpl,
             false,
             $identificador . 'Complemento'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'xBairro',
-            $xBairro,
+            $std->xBairro,
             true,
             $identificador . 'Bairro'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'cMun',
-            $cMun,
+            $std->cMun,
             true,
             $identificador . 'Código do município (utilizar a tabela do IBGE)'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'xMun',
-            $xMun,
+            $std->xMun,
             true,
             $identificador . 'Nome do município'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'CEP',
-            $CEP,
+            $std->CEP,
             false,
             $identificador . 'CEP'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'UF',
-            $UF,
+            $std->UF,
             true,
             $identificador . 'Sigla da UF'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'cPais',
-            $cPais,
+            $std->cPais,
             false,
             $identificador . 'Código do país'
         );
         $this->dom->addChild(
             $this->enderReceb,
             'xPais',
-            $xPais,
+            $std->xPais,
             false,
             $identificador . 'Nome do país'
         );
@@ -2288,38 +2633,30 @@ class Make extends BaseMake
 
     /**
      * Gera as tags para o elemento: "dest" (Informações do Destinatário do CT-e)
-     * #178
+     * #168
      * Nível: 1
      * Os parâmetros para esta função são todos os elementos da tag "dest" do
      * tipo elemento (Ele = E|CE|A) e nível 2
      *
-     * @param string $CNPJ Número do CNPJ
-     * @param string $CPF Número do CPF
-     * @param string $IE Inscrição Estadual
-     * @param string $xNome Razão Social ou Nome
-     * @param string $fone Telefone
-     * @param string $ISUF Inscrição na SUFRAMA
-     * @param string $email Endereço de email
-     *
      * @return \DOMElement
      */
-    public function destTag($CNPJ = '', $CPF = '', $IE = '', $xNome = '', $fone = '', $ISUF = '', $email = '')
+    public function tagdest($std)
     {
         $identificador = '#178 <dest> - ';
         $this->dest = $this->dom->createElement('dest');
-        if ($CNPJ != '') {
+        if ($std->CNPJ != '') {
             $this->dom->addChild(
                 $this->dest,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'Número do CNPJ'
             );
-        } elseif ($CPF != '') {
+        } elseif ($std->CPF != '') {
             $this->dom->addChild(
                 $this->dest,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'Número do CPF'
             );
@@ -2327,50 +2664,56 @@ class Make extends BaseMake
             $this->dom->addChild(
                 $this->dest,
                 'CNPJ',
-                $CNPJ,
+                $std->CNPJ,
                 true,
                 $identificador . 'Número do CNPJ'
             );
             $this->dom->addChild(
                 $this->dest,
                 'CPF',
-                $CPF,
+                $std->CPF,
                 true,
                 $identificador . 'Número do CPF'
             );
         }
-        $this->dom->addChild(
-            $this->dest,
-            'IE',
-            $IE,
-            true,
-            $identificador . 'Inscrição Estadual'
-        );
+        if (!empty($std->IE)) {
+            $this->dom->addChild(
+                $this->dest,
+                'IE',
+                $std->IE,
+                true,
+                $identificador . 'Inscrição Estadual'
+            );
+        }
+        $xNome = $std->xNome;
+        if ($this->tpAmb == '2') {
+            $xNome = 'CT-E EMITIDO EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+        }
         $this->dom->addChild(
             $this->dest,
             'xNome',
-            $xNome,
+            Strings::replaceSpecialsChars(substr(trim($xNome), 0, 60)),
             true,
             $identificador . 'Razão social ou Nome'
         );
         $this->dom->addChild(
             $this->dest,
             'fone',
-            $fone,
+            $std->fone,
             false,
             $identificador . 'Telefone'
         );
         $this->dom->addChild(
             $this->dest,
             'ISUF',
-            $ISUF,
+            $std->ISUF,
             false,
             $identificador . 'Inscrição na SUFRAMA'
         );
         $this->dom->addChild(
             $this->dest,
             'email',
-            $email,
+            $std->email,
             false,
             $identificador . 'Endereço de email'
         );
@@ -2379,105 +2722,84 @@ class Make extends BaseMake
 
     /**
      * Gera as tags para o elemento: "enderDest" (Informações do Recebedor da Carga)
-     * # = 185
+     * # = 175
      * Nível = 2
      * Os parâmetros para esta função são todos os elementos da tag "enderDest" do
      * tipo elemento (Ele = E|CE|A) e nível 3
      *
-     * @param string $xLgr Logradouro
-     * @param string $nro Número
-     * @param string $xCpl Complemento
-     * @param string $xBairro Bairro
-     * @param string $cMun Código do município (utilizar a tabela do IBGE)
-     * @param string $xMun Nome do município
-     * @param string $CEP CEP
-     * @param string $UF Sigla da UF
-     * @param string $cPais Código do país
-     * @param string $xPais Nome do país
-     *
      * @return \DOMElement
      */
-    public function enderDestTag(
-        $xLgr = '',
-        $nro = '',
-        $xCpl = '',
-        $xBairro = '',
-        $cMun = '',
-        $xMun = '',
-        $CEP = '',
-        $UF = '',
-        $cPais = '',
-        $xPais = ''
-    ) {
+    public function tagenderDest($std)
+    {
         $identificador = '#185 <enderDest> - ';
         $this->enderDest = $this->dom->createElement('enderDest');
         $this->dom->addChild(
             $this->enderDest,
             'xLgr',
-            $xLgr,
+            $std->xLgr,
             true,
             $identificador . 'Logradouro'
         );
         $this->dom->addChild(
             $this->enderDest,
             'nro',
-            $nro,
+            $std->nro,
             true,
             $identificador . 'Número'
         );
         $this->dom->addChild(
             $this->enderDest,
             'xCpl',
-            $xCpl,
+            $std->xCpl,
             false,
             $identificador . 'Complemento'
         );
         $this->dom->addChild(
             $this->enderDest,
             'xBairro',
-            $xBairro,
+            $std->xBairro,
             true,
             $identificador . 'Bairro'
         );
         $this->dom->addChild(
             $this->enderDest,
             'cMun',
-            $cMun,
+            $std->cMun,
             true,
             $identificador . 'Código do município (utilizar a tabela do IBGE)'
         );
         $this->dom->addChild(
             $this->enderDest,
             'xMun',
-            $xMun,
+            $std->xMun,
             true,
             $identificador . 'Nome do município'
         );
         $this->dom->addChild(
             $this->enderDest,
             'CEP',
-            $CEP,
+            $std->CEP,
             false,
             $identificador . 'CEP'
         );
         $this->dom->addChild(
             $this->enderDest,
             'UF',
-            $UF,
+            $std->UF,
             true,
             $identificador . 'Sigla da UF'
         );
         $this->dom->addChild(
             $this->enderDest,
             'cPais',
-            $cPais,
+            $std->cPais,
             false,
             $identificador . 'Código do país'
         );
         $this->dom->addChild(
             $this->enderDest,
             'xPais',
-            $xPais,
+            $std->xPais,
             false,
             $identificador . 'Nome do país'
         );
@@ -2488,31 +2810,28 @@ class Make extends BaseMake
 
     /**
      * Gera as tags para o elemento: "vPrest" (Valores da Prestação de Serviço)
-     * #208
+     * #187
      * Nível: 1
      * Os parâmetros para esta função são todos os elementos da tag "vPrest" do
      * tipo elemento (Ele = E|CE|A) e nível 2
      *
-     * @param string $vTPrest Valor Total da Prestação do Serviço
-     * @param string $vRec Valor a Receber
-     *
      * @return \DOMElement
      */
-    public function vPrestTag($vTPrest = '', $vRec = '')
+    public function tagvPrest($std)
     {
         $identificador = '#208 <vPrest> - ';
         $this->vPrest = $this->dom->createElement('vPrest');
         $this->dom->addChild(
             $this->vPrest,
             'vTPrest',
-            $vTPrest,
+            $std->vTPrest,
             true,
             $identificador . 'Valor Total da Prestação do Serviço'
         );
         $this->dom->addChild(
             $this->vPrest,
             'vRec',
-            $vRec,
+            $std->vRec,
             true,
             $identificador . 'Valor a Receber'
         );
@@ -2520,113 +2839,149 @@ class Make extends BaseMake
     }
 
     /**
+     * Gera as tags para o elemento: "Comp" (Componentes do Valor da Prestação)
+     * #211
+     * Nível: 2
+     * Os parâmetros para esta função são todos os elementos da tag "Comp" do
+     * tipo elemento (Ele = E|CE|A) e nível 3
+     *
+     * @return \DOMElement
+     */
+    public function tagComp($std)
+    {
+        $identificador = '#65 <pass> - ';
+        $this->comp[] = $this->dom->createElement('Comp');
+        $posicao = (integer)count($this->comp) - 1;
+        $this->dom->addChild(
+            $this->comp[$posicao],
+            'xNome',
+            $std->xNome,
+            false,
+            $identificador . 'Nome do componente'
+        );
+        $this->dom->addChild(
+            $this->comp[$posicao],
+            'vComp',
+            $std->vComp,
+            false,
+            $identificador . 'Valor do componente'
+        );
+        return $this->comp[$posicao];
+    }
+    
+    /**
      * tagICMS
-     * Informações do ICMS da Operação própria e ST N01 pai M01
-     * tag NFe/infNFe/det[]/imposto/ICMS
-     * @param string $cst
-     * @param string $pRedBC
-     * @param string $vBC
-     * @param string $pICMS
-     * @param string $vICMS
-     * @param string $vBCSTRet
-     * @param string $vICMSSTRet
-     * @param string $pICMSSTRet
-     * @param string $vCred
-     * @param string $vTotTrib
-     * @param bool $outraUF
-     * @param string $vBCUFFim
-     * @param string $pFCPUFFim
-     * @param string $pICMSUFFim
-     * @param string $pICMSInter
-     * @param string $pICMSInterPart
-     * @param string $vFCPUFFim
-     * @param string $vICMSUFFim
-     * @param string $vICMSUFIni
+     * Informações relativas ao ICMS
+     * #194
+     *
      * @return DOMElement
      */
-    public function icmsTag(
-        $cst = '',
-        $pRedBC = '',
-        $vBC = '',
-        $pICMS = '',
-        $vICMS = '',
-        $vBCSTRet = '',
-        $vICMSSTRet = '',
-        $pICMSSTRet = '',
-        $vCred = '',
-        $vTotTrib = 0,
-        $outraUF = false,
-        $vBCUFFim = '',
-        $pFCPUFFim = '',
-        $pICMSUFFim = '',
-        $pICMSInter = '',
-        $pICMSInterPart = '',
-        $vFCPUFFim = '',
-        $vICMSUFFim = 0,
-        $vICMSUFIni = 0
-    ) {
+    public function tagicms($std)
+    {
         $identificador = 'N01 <ICMSxx> - ';
-        switch ($cst) {
+        switch ($std->cst) {
             case '00':
                 $icms = $this->dom->createElement("ICMS00");
-                $this->dom->addChild($icms, 'CST', $cst, true, "$identificador  Tributação do ICMS = 00");
-                $this->dom->addChild($icms, 'vBC', $vBC, true, "$identificador  Valor da BC do ICMS");
-                $this->dom->addChild($icms, 'pICMS', $pICMS, true, "$identificador  Alíquota do imposto");
-                $this->dom->addChild($icms, 'vICMS', $vICMS, true, "$identificador  Valor do ICMS");
+                $this->dom->addChild($icms, 'CST', $std->cst, true, "$identificador  Tributação do ICMS = 00");
+                $this->dom->addChild($icms, 'vBC', $std->vBC, true, "$identificador  Valor da BC do ICMS");
+                $this->dom->addChild($icms, 'pICMS', $std->pICMS, true, "$identificador  Alíquota do imposto");
+                $this->dom->addChild($icms, 'vICMS', $std->vICMS, true, "$identificador  Valor do ICMS");
                 break;
             case '20':
                 $icms = $this->dom->createElement("ICMS20");
-                $this->dom->addChild($icms, 'CST', $cst, true, "$identificador  Tributação do ICMS = 20");
-                $this->dom->addChild($icms, 'pRedBC', $pRedBC, true, "$identificador  Percentual da Redução de BC");
-                $this->dom->addChild($icms, 'vBC', $vBC, true, "$identificador  Valor da BC do ICMS");
-                $this->dom->addChild($icms, 'pICMS', $pICMS, true, "$identificador  Alíquota do imposto");
-                $this->dom->addChild($icms, 'vICMS', $vICMS, true, "$identificador  Valor do ICMS");
+                $this->dom->addChild($icms, 'CST', $std->cst, true, "$identificador  Tributação do ICMS = 20");
+                $this->dom->addChild(
+                    $icms,
+                    'pRedBC',
+                    $std->pRedBC,
+                    true,
+                    "$identificador  Percentual da Redução de BC"
+                );
+                $this->dom->addChild($icms, 'vBC', $std->vBC, true, "$identificador  Valor da BC do ICMS");
+                $this->dom->addChild($icms, 'pICMS', $std->pICMS, true, "$identificador  Alíquota do imposto");
+                $this->dom->addChild($icms, 'vICMS', $std->vICMS, true, "$identificador  Valor do ICMS");
                 break;
             case '40':
                 $icms = $this->dom->createElement("ICMS45");
-                $this->dom->addChild($icms, 'CST', $cst, true, "$identificador  Tributação do ICMS = 40");
+                $this->dom->addChild($icms, 'CST', $std->cst, true, "$identificador  Tributação do ICMS = 40");
                 break;
             case '41':
                 $icms = $this->dom->createElement("ICMS45");
-                $this->dom->addChild($icms, 'CST', $cst, true, "$identificador  Tributação do ICMS = 41");
+                $this->dom->addChild($icms, 'CST', $std->cst, true, "$identificador  Tributação do ICMS = 41");
                 break;
             case '51':
                 $icms = $this->dom->createElement("ICMS45");
-                $this->dom->addChild($icms, 'CST', $cst, true, "$identificador  Tributação do ICMS = 51");
+                $this->dom->addChild($icms, 'CST', $std->cst, true, "$identificador  Tributação do ICMS = 51");
                 break;
             case '60':
                 $icms = $this->dom->createElement("ICMS60");
-                $this->dom->addChild($icms, 'CST', $cst, true, "$identificador  Tributação do ICMS = 60");
-                $this->dom->addChild($icms, 'vBCSTRet', $vBCSTRet, true, "$identificador  Valor BC do ICMS ST retido");
-                $this->dom->addChild($icms, 'vICMSSTRet', $vICMSSTRet, true, "$identificador  Valor do ICMS ST retido");
-                $this->dom->addChild($icms, 'pICMSSTRet', $pICMSSTRet, true, "$identificador  Valor do ICMS ST retido");
+                $this->dom->addChild($icms, 'CST', $std->cst, true, "$identificador  Tributação do ICMS = 60");
+                $this->dom->addChild(
+                    $icms,
+                    'vBCSTRet',
+                    $std->vBCSTRet,
+                    true,
+                    "$identificador  Valor BC do ICMS ST retido"
+                );
+                $this->dom->addChild(
+                    $icms,
+                    'vICMSSTRet',
+                    $std->vICMSSTRet,
+                    true,
+                    "$identificador  Valor do ICMS ST retido"
+                );
+                $this->dom->addChild(
+                    $icms,
+                    'pICMSSTRet',
+                    $std->pICMSSTRet,
+                    true,
+                    "$identificador  Valor do ICMS ST retido"
+                );
                 if ($vCred > 0) {
-                    $this->dom->addChild($icms, 'vCred', $vCred, false, "$identificador  Valor do Crédito");
+                    $this->dom->addChild($icms, 'vCred', $std->vCred, false, "$identificador  Valor do Crédito");
                 }
                 break;
             case '90':
                 if ($outraUF == true) {
                     $icms = $this->dom->createElement("ICMSOutraUF");
-                    $this->dom->addChild($icms, 'CST', $cst, true, "$identificador  Tributação do ICMS = 90");
+                    $this->dom->addChild($icms, 'CST', $std->cst, true, "$identificador  Tributação do ICMS = 90");
                     if ($pRedBC > 0) {
-                        $this->dom->addChild($icms, 'pRedBCOutraUF', $pRedBC, false, "$identificador Percentual Red "
-                            . "BC Outra UF");
+                        $this->dom->addChild(
+                            $icms,
+                            'pRedBCOutraUF',
+                            $std->pRedBC,
+                            false,
+                            "$identificador Percentual Red "
+                            . "BC Outra UF"
+                        );
                     }
-                    $this->dom->addChild($icms, 'vBCOutraUF', $vBC, true, "$identificador Valor BC ICMS Outra UF");
-                    $this->dom->addChild($icms, 'pICMSOutraUF', $pICMS, true, "$identificador Alíquota do "
+                    $this->dom->addChild($icms, 'vBCOutraUF', $std->vBC, true, "$identificador Valor BC ICMS Outra UF");
+                    $this->dom->addChild($icms, 'pICMSOutraUF', $std->pICMS, true, "$identificador Alíquota do "
                         . "imposto Outra UF");
-                    $this->dom->addChild($icms, 'vICMSOutraUF', $vICMS, true, "$identificador Valor ICMS Outra UF");
+                    $this->dom->addChild(
+                        $icms,
+                        'vICMSOutraUF',
+                        $std->vICMS,
+                        true,
+                        "$identificador Valor ICMS Outra UF"
+                    );
                 } else {
                     $icms = $this->dom->createElement("ICMS90");
-                    $this->dom->addChild($icms, 'CST', $cst, true, "$identificador Tributação do ICMS = 90");
+                    $this->dom->addChild($icms, 'CST', $std->cst, true, "$identificador Tributação do ICMS = 90");
                     if ($pRedBC > 0) {
-                        $this->dom->addChild($icms, 'pRedBC', $pRedBC, false, "$identificador Percentual Redução BC");
+                        $this->dom->addChild(
+                            $icms,
+                            'pRedBC',
+                            $std->pRedBC,
+                            false,
+                            "$identificador Percentual Redução BC"
+                        );
                     }
-                    $this->dom->addChild($icms, 'vBC', $vBC, true, "$identificador  Valor da BC do ICMS");
-                    $this->dom->addChild($icms, 'pICMS', $pICMS, true, "$identificador  Alíquota do imposto");
-                    $this->dom->addChild($icms, 'vICMS', $vICMS, true, "$identificador  Valor do ICMS");
+                    $this->dom->addChild($icms, 'vBC', $std->vBC, true, "$identificador  Valor da BC do ICMS");
+                    $this->dom->addChild($icms, 'pICMS', $std->pICMS, true, "$identificador  Alíquota do imposto");
+                    $this->dom->addChild($icms, 'vICMS', $std->vICMS, true, "$identificador  Valor do ICMS");
                     if ($vCred > 0) {
-                        $this->dom->addChild($icms, 'vCred', $vCred, false, "$identificador  Valor do Crédido");
+                        $this->dom->addChild($icms, 'vCred', $std->vCred, false, "$identificador  Valor do Crédido");
                     }
                 }
                 break;
@@ -2644,30 +2999,84 @@ class Make extends BaseMake
         if (isset($icms)) {
             $tagIcms->appendChild($icms);
         }
-        if ($vTotTrib > 0) {
-            $this->dom->addChild($this->imp, 'vTotTrib', $vTotTrib, false, "$identificador Valor Total dos Tributos");
+        if ($std->vTotTrib > 0) {
+            $this->dom->addChild(
+                $this->imp,
+                'vTotTrib',
+                $std->vTotTrib,
+                false,
+                "$identificador Valor Total dos Tributos"
+            );
         }
-        
-        if ($vICMSUFFim > 0 || $vICMSUFIni > 0) {
+
+        if ($std->vICMSUFFim > 0 || $std->vICMSUFIni > 0) {
             $icmsDifal = $this->dom->createElement("ICMSUFFim");
-            $this->dom->addChild($icmsDifal, 'vBCUFFim', $vBCUFFim, true, "$identificador Valor da BC do ICMS na UF 
-                de término da prestação do serviço de transporte");
-            $this->dom->addChild($icmsDifal, 'pFCPUFFim', $pFCPUFFim, true, "$identificador Percentual do ICMS 
-                relativo ao Fundo de Combate à pobreza (FCP) na UF de término da prestação do serviço de 
-                transporte");
-            $this->dom->addChild($icmsDifal, 'pICMSUFFim', $pICMSUFFim, true, "$identificador Alíquota interna da UF 
-                de término da prestação do serviço de transporte");
-            $this->dom->addChild($icmsDifal, 'pICMSInter', $pICMSInter, true, "$identificador Alíquota interestadual 
-                das UF envolvidas");
-            $this->dom->addChild($icmsDifal, 'pICMSInterPart', $pICMSInterPart, true, "$identificador Percentual 
-                provisório de partilha entre os estados");
-            $this->dom->addChild($icmsDifal, 'vFCPUFFim', $vFCPUFFim, true, "$identificador Valor do ICMS relativo 
-                ao Fundo de Combate á Pobreza (FCP) da UF de término da prestação");
-            $this->dom->addChild($icmsDifal, 'vICMSUFFim', $vICMSUFFim, true, "$identificador Valor do ICMS de 
-                partilha para a UF de término da prestação do serviço de transporte");
-            $this->dom->addChild($icmsDifal, 'vICMSUFIni', $vICMSUFIni, true, "$identificador Valor do ICMS de 
-                partilha para a UF de início da prestação do serviço de transporte");
-            
+            $this->dom->addChild(
+                $icmsDifal,
+                'vBCUFFim',
+                $std->vBCUFFim,
+                true,
+                "$identificador Valor da BC do ICMS na UF
+                de término da prestação do serviço de transporte"
+            );
+            $this->dom->addChild(
+                $icmsDifal,
+                'pFCPUFFim',
+                $std->pFCPUFFim,
+                true,
+                "$identificador Percentual do ICMS
+                relativo ao Fundo de Combate à pobreza (FCP) na UF de término da prestação do serviço de
+                transporte"
+            );
+            $this->dom->addChild(
+                $icmsDifal,
+                'pICMSUFFim',
+                $std->pICMSUFFim,
+                true,
+                "$identificador Alíquota interna da UF
+                de término da prestação do serviço de transporte"
+            );
+            $this->dom->addChild(
+                $icmsDifal,
+                'pICMSInter',
+                $std->pICMSInter,
+                true,
+                "$identificador Alíquota interestadual
+                das UF envolvidas"
+            );
+            $this->dom->addChild(
+                $icmsDifal,
+                'pICMSInterPart',
+                $std->pICMSInterPart,
+                true,
+                "$identificador Percentual
+                provisório de partilha entre os estados"
+            );
+            $this->dom->addChild(
+                $icmsDifal,
+                'vFCPUFFim',
+                $std->vFCPUFFim,
+                true,
+                "$identificador Valor do ICMS relativo
+                ao Fundo de Combate á Pobreza (FCP) da UF de término da prestação"
+            );
+            $this->dom->addChild(
+                $icmsDifal,
+                'vICMSUFFim',
+                $std->vICMSUFFim,
+                true,
+                "$identificador Valor do ICMS de
+                partilha para a UF de término da prestação do serviço de transporte"
+            );
+            $this->dom->addChild(
+                $icmsDifal,
+                'vICMSUFIni',
+                $std->vICMSUFIni,
+                true,
+                "$identificador Valor do ICMS de
+                partilha para a UF de início da prestação do serviço de transporte"
+            );
+
             $this->imp->appendChild($icmsDifal);
         }
 
@@ -2675,37 +3084,38 @@ class Make extends BaseMake
     }
 
     /**
-     * Gera as tags para o elemento: "Comp" (Componentes do Valor da Prestação)
-     * #211
-     * Nível: 2
-     * Os parâmetros para esta função são todos os elementos da tag "Comp" do
-     * tipo elemento (Ele = E|CE|A) e nível 3
-     *
-     * @param string $xNome Nome do componente
-     * @param string $vComp Valor do componente
-     *
+     * tagInfTribFed
+     * Informações do Impostos Federais
+     * CTe OS
+     * @return DOMElement
+     */
+    public function taginfTribFed($std)
+    {
+        $identificador = 'N02 <imp> - ';
+        $tagInfTribFed = $this->dom->createElement('infTribFed');
+
+        $this->dom->addChild($tagInfTribFed, 'vPIS', $std->vPIS, false, "$identificador  Valor de PIS");
+        $this->dom->addChild($tagInfTribFed, 'vCOFINS', $std->vCOFINS, false, "$identificador  Valor de COFINS");
+        $this->dom->addChild($tagInfTribFed, 'vIR', $std->vIR, false, "$identificador  Valor de IR");
+        $this->dom->addChild($tagInfTribFed, 'vINSS', $std->vINSS, false, "$identificador  Valor de INSS");
+        $this->dom->addChild($tagInfTribFed, 'vCSLL', $std->vCSLL, false, "$identificador  Valor de CSLL");
+
+        $this->imp->appendChild($tagInfTribFed);
+    }
+    
+
+    /**
+     * Tag raiz do documento xml
+     * Função chamada pelo método [ monta ]
      * @return \DOMElement
      */
-    public function compTag($xNome = '', $vComp = '')
+    private function buildCTe()
     {
-        $identificador = '#65 <pass> - ';
-        $this->comp[] = $this->dom->createElement('Comp');
-        $posicao = (integer)count($this->comp) - 1;
-        $this->dom->addChild(
-            $this->comp[$posicao],
-            'xNome',
-            $xNome,
-            false,
-            $identificador . 'Nome do componente'
-        );
-        $this->dom->addChild(
-            $this->comp[$posicao],
-            'vComp',
-            $vComp,
-            false,
-            $identificador . 'Valor do componente'
-        );
-        return $this->comp[$posicao];
+        if (empty($this->CTe)) {
+            $this->CTe = $this->dom->createElement('CTe');
+            $this->CTe->setAttribute('xmlns', 'http://www.portalfiscal.inf.br/cte');
+        }
+        return $this->CTe;
     }
 
     /**
@@ -2713,10 +3123,11 @@ class Make extends BaseMake
      * Função chamada pelo método [ monta ]
      * @return \DOMElement
      */
-    private function zCTeTag()
+    private function buildCTeOS()
     {
         if (empty($this->CTe)) {
-            $this->CTe = $this->dom->createElement('CTe');
+            $this->CTe = $this->dom->createElement('CTeOS');
+            $this->CTe->setAttribute('versao', '3.00');
             $this->CTe->setAttribute('xmlns', 'http://www.portalfiscal.inf.br/cte');
         }
         return $this->CTe;
@@ -2731,67 +3142,122 @@ class Make extends BaseMake
      *
      * @return \DOMElement
      */
-    private function zEntregaTag()
+    private function tagEntrega()
     {
-        $this->entrega = $this->dom->createElement('Entrega');
+        if ($this->compl == '') {
+            $this->compl = $this->dom->createElement('compl');
+        }
+        if ($this->entrega == '') {
+            $this->entrega = $this->dom->createElement('Entrega');
+            $this->dom->appChild($this->compl, $this->entrega, 'Falta tag "compl"');
+        }
         return $this->entrega;
     }
 
-    public function infCTeNormTag()
+    /**
+     * #241
+     * @return type
+     */
+    public function taginfCTeNorm()
     {
         $this->infCTeNorm = $this->dom->createElement('infCTeNorm');
         return $this->infCTeNorm;
     }
 
     /**
-     * Gera as tags para o elemento: "Comp" (Informações da Carga do CT-e)
-     * #253
+     * Gera as tags para o elemento: "infCarga" (Informações da Carga do CT-e)
+     * #242
      * Nível: 2
-     * Os parâmetros para esta função são todos os elementos da tag "infCarga"
-     * @param string $vCarga Valor total da carga
-     * @param string $proPred Produto predominante
-     * @param string $xOutCat Outras características da carga
-     * @param string $vCargaAverb
      *
      * @return \DOMElement
      */
-    public function infCargaTag($vCarga = '', $proPred = '', $xOutCat = '', $vCargaAverb = '')
+    public function taginfCarga($std)
     {
-        $identificador = '#253 <infCarga> - ';
+        $identificador = '#242 <infCarga> - ';
         $this->infCarga = $this->dom->createElement('infCarga');
-        $this->dom->addChild($this->infCarga, 'vCarga', $vCarga, false, $identificador . 'Valor Total da Carga');
-        $this->dom->addChild($this->infCarga, 'proPred', $proPred, true, $identificador . 'Produto Predominante');
-        $this->dom->addChild($this->infCarga, 'xOutCat', $xOutCat, false, $identificador . 'Outras Caract. da Carga');
-        $this->dom->addChild($this->infCarga, 'vCargaAverb', $vCargaAverb, false, $identificador . 'Valor da Carga para 
-            efeito de averbação');
+        $this->dom->addChild(
+            $this->infCarga,
+            'vCarga',
+            $std->vCarga,
+            false,
+            $identificador . 'Valor Total da Carga'
+        );
+        $this->dom->addChild(
+            $this->infCarga,
+            'proPred',
+            $std->proPred,
+            true,
+            $identificador . 'Produto Predominante'
+        );
+        $this->dom->addChild(
+            $this->infCarga,
+            'xOutCat',
+            $std->xOutCat,
+            false,
+            $identificador . 'Outras Caract. da Carga'
+        );
+        $this->dom->addChild(
+            $this->infCarga,
+            'vCargaAverb',
+            $std->vCargaAverb,
+            false,
+            $identificador . 'Valor da Carga para
+            efeito de averbação'
+        );
 
         return $this->infCarga;
     }
 
     /**
+     * Gera as tags para o elemento: "infCTeNorm" (Informações da Carga do CT-e OS)
+     * #253
+     * Nível: 2
+     * Os parâmetros para esta função são todos os elementos da tag "infServico"
+     *
+     * @return \DOMElement
+     */
+    public function taginfServico($std)
+    {
+        $identificador = '#253 <infServico> - ';
+
+        $this->infServico = $this->dom->createElement('infServico');
+        $this->dom->addChild(
+            $this->infServico,
+            'xDescServ',
+            $std->xDescServ,
+            true,
+            $identificador . 'Descrição do Serviço Prestado'
+        );
+        $infQ = $this->dom->createElement('infQ');
+        $this->dom->addChild($infQ, 'qCarga', $std->qCarga, false, $identificador . 'Quantidade');
+
+        $this->infServico->appendChild($infQ);
+
+        return $this->infServico;
+    }
+
+    /**
      * Gera as tags para o elemento: "infQ" (Informações de quantidades da Carga do CT-e)
-     * #257
+     * #246
      * Nível: 3
      * Os parâmetros para esta função são todos os elementos da tag "infQ"
-     * @param string $cUnid Código da Unidade de Medida
-     * @param string $tpMed Tipo da Medida
-     * @param string $qCarga Quantidade
+     *
      * @return mixed
      */
-    public function infQTag($cUnid = '', $tpMed = '', $qCarga = '')
+    public function taginfQ($std)
     {
         $identificador = '#257 <infQ> - ';
         $this->infQ[] = $this->dom->createElement('infQ');
         $posicao = (integer)count($this->infQ) - 1;
-        $this->dom->addChild($this->infQ[$posicao], 'cUnid', $cUnid, true, $identificador . 'Código da 
+        $this->dom->addChild($this->infQ[$posicao], 'cUnid', $std->cUnid, true, $identificador . 'Código da
             Unidade de Medida');
-        $this->dom->addChild($this->infQ[$posicao], 'tpMed', $tpMed, true, $identificador . 'Tipo da Medida');
-        $this->dom->addChild($this->infQ[$posicao], 'qCarga', $qCarga, true, $identificador . 'Quantidade');
+        $this->dom->addChild($this->infQ[$posicao], 'tpMed', $std->tpMed, true, $identificador . 'Tipo da Medida');
+        $this->dom->addChild($this->infQ[$posicao], 'qCarga', $std->qCarga, true, $identificador . 'Quantidade');
 
         return $this->infQ[$posicao];
     }
 
-    public function infDocTag()
+    public function taginfDoc()
     {
         $this->infDoc = $this->dom->createElement('infDoc');
         return $this->infDoc;
@@ -2801,7 +3267,7 @@ class Make extends BaseMake
      * Documentos de Transporte Anterior
      * @return DOMElement|\DOMNode
      */
-    public function docAntTag()
+    public function tagdocAnt()
     {
         $this->docAnt = $this->dom->createElement('docAnt');
         return $this->docAnt;
@@ -2811,7 +3277,7 @@ class Make extends BaseMake
      * Informações de identificação dos documentos de Transporte Anterior
      * @return array|DOMElement
      */
-    public function idDocAntTag()
+    public function tagidDocAnt()
     {
         $this->idDocAnt = $this->dom->createElement('idDocAnt');
         return $this->idDocAnt;
@@ -2821,70 +3287,38 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "infNF" (Informações das NF)
      * #262
      * Nível: 3
-     * @param string $nRoma
-     * @param string $nPed
-     * @param string $mod
-     * @param string $serie
-     * @param string $nDoc
-     * @param string $dEmi
-     * @param string $vBC
-     * @param string $vICMS
-     * @param string $vBCST
-     * @param string $vST
-     * @param string $vProd
-     * @param string $vNF
-     * @param string $nCFOP
-     * @param string $nPeso
-     * @param string $PIN
-     * @param string $dPrev
      * @return mixed
      */
-    public function infNFTag(
-        $nRoma = '',
-        $nPed = '',
-        $mod = '',
-        $serie = '',
-        $nDoc = '',
-        $dEmi = '',
-        $vBC = '',
-        $vICMS = '',
-        $vBCST = '',
-        $vST = '',
-        $vProd = '',
-        $vNF = '',
-        $nCFOP = '',
-        $nPeso = '',
-        $PIN = '',
-        $dPrev = ''
-    ) {
+    public function taginfNF($std)
+    {
         $identificador = '#262 <infNF> - ';
         $this->infNF[] = $this->dom->createElement('infNF');
         $posicao = (integer)count($this->infNF) - 1;
 
-        $this->dom->addChild($this->infNF[$posicao], 'nRoma', $nRoma, false, $identificador . 'Número do 
+        $this->dom->addChild($this->infNF[$posicao], 'nRoma', $std->nRoma, false, $identificador . 'Número do
             Romaneio da NF');
-        $this->dom->addChild($this->infNF[$posicao], 'nPed', $nPed, false, $identificador . 'Número do 
+        $this->dom->addChild($this->infNF[$posicao], 'nPed', $std->nPed, false, $identificador . 'Número do
             Pedido da NF');
-        $this->dom->addChild($this->infNF[$posicao], 'mod', $mod, true, $identificador . 'Modelo da 
+        $this->dom->addChild($this->infNF[$posicao], 'mod', $std->mod, true, $identificador . 'Modelo da
             Nota Fiscal');
-        $this->dom->addChild($this->infNF[$posicao], 'serie', $serie, true, $identificador . 'Série');
-        $this->dom->addChild($this->infNF[$posicao], 'nDoc', $nDoc, true, $identificador . 'Número');
-        $this->dom->addChild($this->infNF[$posicao], 'dEmi', $dEmi, true, $identificador . 'Data de Emissão');
-        $this->dom->addChild($this->infNF[$posicao], 'vBC', $vBC, true, $identificador . 'Valor da Base 
+        $this->dom->addChild($this->infNF[$posicao], 'serie', $std->serie, true, $identificador . 'Série');
+        $this->dom->addChild($this->infNF[$posicao], 'nDoc', $std->nDoc, true, $identificador . 'Número');
+        $this->dom->addChild($this->infNF[$posicao], 'dEmi', $std->dEmi, true, $identificador . 'Data de Emissão');
+        $this->dom->addChild($this->infNF[$posicao], 'vBC', $std->vBC, true, $identificador . 'Valor da Base
             de Cálculo do ICMS');
-        $this->dom->addChild($this->infNF[$posicao], 'vICMS', $vICMS, true, $identificador . 'Valor Total 
+        $this->dom->addChild($this->infNF[$posicao], 'vICMS', $std->vICMS, true, $identificador . 'Valor Total
             do ICMS');
-        $this->dom->addChild($this->infNF[$posicao], 'vBCST', $vBCST, true, $identificador . 'Valor da 
+        $this->dom->addChild($this->infNF[$posicao], 'vBCST', $std->vBCST, true, $identificador . 'Valor da
             Base de Cálculo do ICMS ST');
-        $this->dom->addChild($this->infNF[$posicao], 'vST', $vST, true, $identificador . 'Valor Total 
+        $this->dom->addChild($this->infNF[$posicao], 'vST', $std->vST, true, $identificador . 'Valor Total
             do ICMS ST');
-        $this->dom->addChild($this->infNF[$posicao], 'vProd', $vProd, true, $identificador . 'Valor Total
+        $this->dom->addChild($this->infNF[$posicao], 'vProd', $std->vProd, true, $identificador . 'Valor Total
             dos Produtos');
-        $this->dom->addChild($this->infNF[$posicao], 'vNF', $vNF, true, $identificador . 'Valor Total da NF');
-        $this->dom->addChild($this->infNF[$posicao], 'nCFOP', $nCFOP, true, $identificador . 'CFOP Predominante');
-        $this->dom->addChild($this->infNF[$posicao], 'nPeso', $nPeso, false, $identificador . 'Peso total em Kg');
-        $this->dom->addChild($this->infNF[$posicao], 'PIN', $PIN, false, $identificador . 'PIN SUFRAMA');
-        $this->dom->addChild($this->infNF[$posicao], 'dPrev', $dPrev, false, $identificador . 'Data prevista
+        $this->dom->addChild($this->infNF[$posicao], 'vNF', $std->vNF, true, $identificador . 'Valor Total da NF');
+        $this->dom->addChild($this->infNF[$posicao], 'nCFOP', $std->nCFOP, true, $identificador . 'CFOP Predominante');
+        $this->dom->addChild($this->infNF[$posicao], 'nPeso', $std->nPeso, false, $identificador . 'Peso total em Kg');
+        $this->dom->addChild($this->infNF[$posicao], 'PIN', $std->PIN, false, $identificador . 'PIN SUFRAMA');
+        $this->dom->addChild($this->infNF[$posicao], 'dPrev', $std->dPrev, false, $identificador . 'Data prevista
             de entrega');
 
         return $this->infNF[$posicao];
@@ -2894,12 +3328,9 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "infNFe" (Informações das NF-e)
      * #297
      * Nível: 3
-     * @param string $chave
-     * @param string $PIN
-     * @param string $dPrev
      * @return mixed
      */
-    public function infNFeTag($chave = '', $PIN = '', $dPrev = '')
+    public function taginfNFe($std)
     {
         $identificador = '#297 <infNFe> - ';
         $this->infNFe[] = $this->dom->createElement('infNFe');
@@ -2907,21 +3338,21 @@ class Make extends BaseMake
         $this->dom->addChild(
             $this->infNFe[$posicao],
             'chave',
-            $chave,
+            $std->chave,
             true,
             $identificador . 'Chave de acesso da NF-e'
         );
         $this->dom->addChild(
             $this->infNFe[$posicao],
             'PIN',
-            $PIN,
+            $std->PIN,
             false,
             $identificador . 'PIN SUFRAMA'
         );
         $this->dom->addChild(
             $this->infNFe[$posicao],
             'dPrev',
-            $dPrev,
+            $std->dPrev,
             false,
             $identificador . 'Data prevista de entrega'
         );
@@ -2932,75 +3363,103 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "infOutros" (Informações dos demais documentos)
      * #319
      * Nível: 3
-     * @param string $tpDoc
-     * @param string $descOutros
-     * @param string $nDoc
-     * @param string $dEmi
-     * @param string $vDocFisc
-     * @param string $dPrev
      * @return mixed
      */
-    public function infOutrosTag($tpDoc = '', $descOutros = '', $nDoc = '', $dEmi = '', $vDocFisc = '', $dPrev = '')
+    public function taginfOutros($std)
     {
         $ident = '#319 <infOutros> - ';
         $this->infOutros[] = $this->dom->createElement('infOutros');
         $posicao = (integer)count($this->infOutros) - 1;
-        $this->dom->addChild($this->infOutros[$posicao], 'tpDoc', $tpDoc, true, $ident . 'Tipo '
+        $this->dom->addChild($this->infOutros[$posicao], 'tpDoc', $std->tpDoc, true, $ident . 'Tipo '
             . 'de documento originário');
-        $this->dom->addChild($this->infOutros[$posicao], 'descOutros', $descOutros, false, $ident . 'Descrição '
+        $this->dom->addChild($this->infOutros[$posicao], 'descOutros', $std->descOutros, false, $ident . 'Descrição '
             . 'do documento');
-        $this->dom->addChild($this->infOutros[$posicao], 'nDoc', $nDoc, false, $ident . 'Número '
+        $this->dom->addChild($this->infOutros[$posicao], 'nDoc', $std->nDoc, false, $ident . 'Número '
             . 'do documento');
-        $this->dom->addChild($this->infOutros[$posicao], 'dEmi', $dEmi, false, $ident . 'Data de Emissão');
-        $this->dom->addChild($this->infOutros[$posicao], 'vDocFisc', $vDocFisc, false, $ident . 'Valor '
+        $this->dom->addChild($this->infOutros[$posicao], 'dEmi', $std->dEmi, false, $ident . 'Data de Emissão');
+        $this->dom->addChild($this->infOutros[$posicao], 'vDocFisc', $std->vDocFisc, false, $ident . 'Valor '
             . 'do documento');
-        $this->dom->addChild($this->infOutros[$posicao], 'dPrev', $dPrev, false, $ident . 'Data '
+        $this->dom->addChild($this->infOutros[$posicao], 'dPrev', $std->dPrev, false, $ident . 'Data '
             . 'prevista de entrega');
         return $this->infOutros[$posicao];
+    }
+
+    /**
+     * Gera as tags para o elemento: "infDocRef" (Informações dos demais documentos)
+     * #319
+     * Nível: 3
+     * @return mixed
+     */
+    public function taginfDocRef($std)
+    {
+        $ident = '#319 <infDocRef> - ';
+        $this->infDocRef[] = $this->dom->createElement('infDocRef');
+        $posicao = (integer)count($this->infDocRef) - 1;
+        $this->dom->addChild($this->infDocRef[$posicao], 'nDoc', $std->nDoc, false, $ident . 'Número '
+            . 'do documento');
+        $this->dom->addChild($this->infDocRef[$posicao], 'serie', $std->serie, false, $ident . 'Série '
+            . 'do documento');
+        $this->dom->addChild($this->infDocRef[$posicao], 'subserie', $std->subserie, false, $ident . 'Subserie '
+            . 'do documento');
+        $this->dom->addChild($this->infDocRef[$posicao], 'dEmi', $std->dEmi, false, $ident . 'Data de Emissão');
+        $this->dom->addChild($this->infDocRef[$posicao], 'vDoc', $std->vDoc, false, $ident . 'Valor '
+            . 'do documento');
+        return $this->infDocRef[$posicao];
     }
 
     /**
      * Gera as tags para o elemento: "emiDocAnt" (Informações dos CT-es Anteriores)
      * #345
      * Nível: 3
-     * @param string $CNPJ
-     * @param string $CPF
-     * @param string $IE
-     * @param string $UF
-     * @param string $xNome
      * @return mixed
      */
-    public function emiDocAntTag($CNPJ = '', $CPF = '', $IE = '', $UF = '', $xNome = '')
+    public function tagemiDocAnt($std)
     {
         $identificador = '#345 <emiDocAnt> - ';
         $this->emiDocAnt[] = $this->dom->createElement('emiDocAnt');
         $posicao = (integer)count($this->emiDocAnt) - 1;
         if ($CNPJ != '') {
-            $this->dom->addChild($this->emiDocAnt[$posicao], 'CNPJ', $CNPJ, true, $identificador . 'Número do CNPJ');
-            $this->dom->addChild($this->emiDocAnt[$posicao], 'IE', $IE, true, $identificador . 'Inscrição Estadual');
-            $this->dom->addChild($this->emiDocAnt[$posicao], 'UF', $UF, true, $identificador . 'Sigla da UF');
+            $this->dom->addChild(
+                $this->emiDocAnt[$posicao],
+                'CNPJ',
+                $std->CNPJ,
+                true,
+                $identificador . 'Número do CNPJ'
+            );
+            $this->dom->addChild(
+                $this->emiDocAnt[$posicao],
+                'IE',
+                Strings::onlyNumbers($std->IE),
+                true,
+                $identificador . 'Inscrição Estadual'
+            );
+            $this->dom->addChild($this->emiDocAnt[$posicao], 'UF', $std->UF, true, $identificador . 'Sigla da UF');
         } else {
-            $this->dom->addChild($this->emiDocAnt[$posicao], 'CPF', $CPF, true, $identificador . 'Número do CPF');
+            $this->dom->addChild($this->emiDocAnt[$posicao], 'CPF', $std->CPF, true, $identificador . 'Número do CPF');
         }
-        $this->dom->addChild($this->emiDocAnt[$posicao], 'xNome', $xNome, true, $identificador . 'Razão Social ou '
-            . ' Nome do Expedidor');
+        $this->dom->addChild(
+            $this->emiDocAnt[$posicao],
+            'xNome',
+            $std->xNome,
+            true,
+            $identificador . 'Razão Social ou Nome do Expedidor'
+        );
 
         return $this->emiDocAnt[$posicao];
     }
 
     /**
      * Gera as tags para o elemento: "idDocAntEle" (Informações dos CT-es Anteriores)
-     * #358
+     * #348
      * Nível: 4
-     * @param string $chCTe
      * @return mixed
      */
-    public function idDocAntEleTag($chCTe = '')
+    public function tagidDocAntEle($std)
     {
         $identificador = '#358 <idDocAntEle> - ';
         $this->idDocAntEle[] = $this->dom->createElement('idDocAntEle');
         $posicao = (integer)count($this->idDocAntEle) - 1;
-        $this->dom->addChild($this->idDocAntEle[$posicao], 'chCTe', $chCTe, true, $identificador . 'Chave de '
+        $this->dom->addChild($this->idDocAntEle[$posicao], 'chCTe', $std->chCTe, true, $identificador . 'Chave de '
             . 'Acesso do CT-e');
 
         return $this->idDocAntEle[$posicao];
@@ -3011,22 +3470,19 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "seg" (Informações de Seguro da Carga)
      * #360
      * Nível: 2
-     * @param int $respSeg
-     * @param string $xSeg
-     * @param string $nApol
      * @return mixed
      */
-    public function segTag($respSeg = 4, $xSeg = '', $nApol = '')
+    public function tagseg($std)
     {
         $identificador = '#360 <seg> - ';
         $this->seg[] = $this->dom->createElement('seg');
         $posicao = (integer)count($this->seg) - 1;
 
-        $this->dom->addChild($this->seg[$posicao], 'respSeg', $respSeg, true, $identificador . 'Responsável 
+        $this->dom->addChild($this->seg[$posicao], 'respSeg', $std->respSeg, true, $identificador . 'Responsável
             pelo Seguro');
-        $this->dom->addChild($this->seg[$posicao], 'xSeg', $xSeg, false, $identificador . 'Nome da 
+        $this->dom->addChild($this->seg[$posicao], 'xSeg', $std->xSeg, false, $identificador . 'Nome da
             Seguradora');
-        $this->dom->addChild($this->seg[$posicao], 'nApol', $nApol, false, $identificador . 'Número da Apólice');
+        $this->dom->addChild($this->seg[$posicao], 'nApol', $std->nApol, false, $identificador . 'Número da Apólice');
         return $this->seg[$posicao];
     }
 
@@ -3037,11 +3493,11 @@ class Make extends BaseMake
      * @param string $versaoModal
      * @return DOMElement|\DOMNode
      */
-    public function infModalTag($versaoModal = '')
+    public function taginfModal($std)
     {
         $identificador = '#366 <infModal> - ';
         $this->infModal = $this->dom->createElement('infModal');
-        $this->infModal->setAttribute('versaoModal', $versaoModal);
+        $this->infModal->setAttribute('versaoModal', $std->versaoModal);
         return $this->infModal;
     }
 
@@ -3050,78 +3506,188 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "rodo" (Informações do modal Rodoviário)
      * #1
      * Nível: 0
-     * @param string $RNTRC
      * @return DOMElement|\DOMNode
      */
-    public function rodoTag($RNTRC = '')
+    public function tagrodo($std)
     {
         $identificador = '#1 <rodo> - ';
         $this->rodo = $this->dom->createElement('rodo');
-        $this->dom->addChild($this->rodo, 'RNTRC', $RNTRC, true, $identificador . 'Registro nacional de transportadores
-            rodoviários de carga');
+        $this->dom->addChild(
+            $this->rodo,
+            'RNTRC',
+            $std->RNTRC,
+            true,
+            $identificador . 'Registro nacional de transportadores
+            rodoviários de carga'
+        );
 
         return $this->rodo;
     }
 
     /**
      * Leiaute - Rodoviário
+     * Gera as tags para o elemento: "rodo" (Informações do modal Rodoviário) CT-e OS
+     * #1
+     * Nível: 0
+     * @return DOMElement|\DOMNode
+     */
+    public function tagrodoOS($std)
+    {
+        $identificador = '#1 <rodoOS> - ';
+        $this->rodo = $this->dom->createElement('rodoOS');
+        $this->dom->addChild($this->rodo, 'TAF', $std->TAF, false, $identificador .
+                             'Termo de Autorização de Fretamento - TAF');
+        $this->dom->addChild($this->rodo, 'NroRegEstadual', $std->nroRegEstadual, false, $identificador .
+                             'Número do Registro Estadual');
+
+        return $this->rodo;
+    }
+    
+    /**
+     * CT-e de substituição
+     * @param type $std
+     * @return type
+     */
+    public function taginfCteSub($std)
+    {
+        $identificador = '#149 <infCteSub> - ';
+        $this->infCteSub = $this->dom->createElement('infCteSub');
+
+        $this->dom->addChild(
+            $this->infCteSub,
+            'chCTe',
+            $std->chCTe,
+            false,
+            "$identificador  Chave de acesso do CTe a ser substituído (original)"
+        );
+        $this->dom->addChild(
+            $this->infCteSub,
+            'retCteAnu',
+            $std->retCteAnu,
+            false,
+            "$identificador  Chave de acesso do CT-e de Anulação"
+        );
+        return $this->infCteSub;
+    }
+    
+    
+    /**
+     * CT-e de substituição - tomaICMS
+     * @param type $std
+     * @return type
+     */
+    public function tagtomaICMS()
+    {
+        $this->tomaICMS = $this->dom->createElement('tomaICMS');
+
+        return $this->tomaICMS;
+    }
+    
+    /**
+     * CT-e de substituição - NF-e
+     * @param type $std
+     * @return type
+     */
+    public function tagrefNFe($std)
+    {
+        if (empty($this->tomICMS)) {
+            $this->tomaICMS = $this->dom->createElement('tomaICMS');
+        }
+        $identificador = '#153 <refNFe> - ';
+        $this->dom->addChild(
+            $this->tomaICMS,
+            'refNFe',
+            $std->refNFe,
+            false,
+            "$identificador  Chave de acesso da NF-e emitida pelo tomador"
+        );
+
+        return $this->tomaICMS;
+    }
+    
+    /**
+     * CT-e de substituição - NF
+     * @param type $std
+     * @return type
+     */
+    public function tagrefNF($std)
+    {
+        $identificador = '#154 <refNFe> - ';
+        if (empty($this->tomICMS)) {
+            $this->tomaICMS = $this->dom->createElement('tomaICMS');
+        }
+        $this->refNF = $this->dom->createElement('refNF');
+        if ($std->CNPJ != '') {
+                $this->dom->addChild(
+                    $this->refNF,
+                    'CNPJ',
+                    $std->CNPJ,
+                    true,
+                    $identificador . 'CNPJ do emitente'
+                );
+        } elseif ($CPF != '') {
+            $this->dom->addChild(
+                $this->refNF,
+                'CPF',
+                $std->CPF,
+                true,
+                $identificador . 'CPF do emitente'
+            );
+        }
+        $this->dom->addChild($this->refNF, 'mod', $std->mod, false, $identificador . 'Modelo');
+        $this->dom->addChild($this->refNF, 'serie', $std->serie, false, $identificador . 'Série '
+            . 'do documento');
+        $this->dom->addChild($this->refNF, 'subserie', $std->subserie, false, $identificador . 'Subserie '
+            . 'do documento');
+        $this->dom->addChild($this->refNF, 'nro', $std->nro, false, $identificador . 'Número');
+        $this->dom->addChild($this->refNF, 'valor', $std->valor, false, $identificador . 'Valor');
+        $this->dom->addChild($this->refNF, 'dEmi', $std->dEmi, false, $identificador . 'Emissão');
+        
+        $this->tomaICMS->appendChild($this->refNF);
+
+        return $this->tomaICMS;
+    }
+    
+    /**
+     * CT-e de substituição - CT-e
+     * @param type $std
+     * @return type
+     */
+    public function tagrefCTe($std)
+    {
+        if (empty($this->tomICMS)) {
+            $this->tomaICMS = $this->dom->createElement('tomaICMS');
+        }
+        $identificador = '#163 <refCTe> - ';
+        $this->dom->addChild(
+            $this->tomaICMS,
+            'refCTe',
+            $std->refCTe,
+            false,
+            "$identificador  Chave de acesso do CT-e emitida pelo tomador"
+        );
+
+        return $this->tomaICMS;
+    }
+    
+
+    /**
+     * Leiaute - Rodoviário CTe OS
      * Gera as tags para o elemento: "veic" (Dados dos Veículos)
      * #21
      * Nível: 1
-     * @param string $cInt
-     * @param string $RENAVAM
-     * @param string $placa
-     * @param string $tara
-     * @param string $capKG
-     * @param string $capM3
-     * @param string $tpProp
-     * @param string $tpVeic
-     * @param string $tpRod
-     * @param string $tpCar
-     * @param string $UF
-     * @param string $CPF
-     * @param string $CNPJ
-     * @param string $RNTRC
-     * @param string $xNome
-     * @param string $IE
-     * @param string $propUF
-     * @param string $tpPropProp
      * @return mixed
      */
-    public function veicTag(
-        $cInt = '',
-        $RENAVAM = '',
-        $placa = '',
-        $tara = '',
-        $capKG = '',
-        $capM3 = '',
-        $tpProp = '',
-        $tpVeic = '',
-        $tpRod = '',
-        $tpCar = '',
-        $UF = '',
-        $CPF = '',
-        // Informar os zeros não significativos.
-        $CNPJ = '',
-        // Informar os zeros não significativos.
-        $RNTRC = '',
-        // Registro obrigatório do proprietário
-        $xNome = '',
-        // Nome do proprietário
-        $IE = '',
-        // Inscrição estadual caso seja Pessoa Jurídica
-        $propUF = '',
-        // Sigla da UF,
-        $tpPropProp = ''
-    ) {
+    public function tagveic($std)
+    {
         $identificador = '#21 <veic> - ';
         $this->veic[] = $this->dom->createElement('veic');
         $posicao = (integer)count($this->veic) - 1;
-        if ($cInt != '') {
+        if ($std->cInt != '') {
             $this->dom->addChild(
                 $this->veic[$posicao],
                 'cInt',
-                $cInt,
+                $std->cInt,
                 false,
                 $identificador . 'Código interno do veículo'
             );
@@ -3129,81 +3695,81 @@ class Make extends BaseMake
         $this->dom->addChild(
             $this->veic[$posicao],
             'RENAVAM',
-            $RENAVAM,
+            $std->RENAVAM,
             false,
             $identificador . 'RENAVAM do veículo'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'placa',
-            $placa,
+            $std->placa,
             false,
             $identificador . 'Placa do veículo'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'tara',
-            $tara,
+            $std->tara,
             false,
             $identificador . 'Tara em KG'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'capKG',
-            $capKG,
+            $std->capKG,
             false,
             $identificador . 'Capacidade em KG'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'capM3',
-            $capM3,
+            $std->capM3,
             false,
             $identificador . 'Capacidade em M3'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'tpProp',
-            $tpProp,
+            $std->tpProp,
             false,
             $identificador . 'Tipo de Propriedade de veículo'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'tpVeic',
-            $tpVeic,
+            $std->tpVeic,
             false,
             $identificador . 'Tipo do veículo'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'tpRod',
-            $tpRod,
+            $std->tpRod,
             false,
             $identificador . 'Tipo do Rodado'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'tpCar',
-            $tpCar,
+            $std->tpCar,
             false,
             $identificador . 'Tipo de Carroceria'
         );
         $this->dom->addChild(
             $this->veic[$posicao],
             'UF',
-            $UF,
+            $std->UF,
             false,
             $identificador . 'UF em que veículo está licenciado'
         );
-        if ($tpProp == 'T') { // CASO FOR VEICULO DE TERCEIRO
+        if ($std->tpProp == 'T') { // CASO FOR VEICULO DE TERCEIRO
             $this->prop[] = $this->dom->createElement('prop');
             $p = (integer)count($this->prop) - 1;
-            if ($CNPJ != '') {
+            if ($std->CNPJ != '') {
                 $this->dom->addChild(
                     $this->prop[$p],
                     'CNPJ',
-                    $CNPJ,
+                    $std->CNPJ,
                     true,
                     $identificador . 'CNPJ do proprietario'
                 );
@@ -3219,35 +3785,35 @@ class Make extends BaseMake
             $this->dom->addChild(
                 $this->prop[$p],
                 'RNTRC',
-                $RNTRC,
+                $std->RNTRC,
                 true,
                 $identificador . 'RNTRC do proprietario'
             );
             $this->dom->addChild(
                 $this->prop[$p],
                 'xNome',
-                $xNome,
+                $std->xNome,
                 true,
                 $identificador . 'Nome do proprietario'
             );
             $this->dom->addChild(
                 $this->prop[$p],
                 'IE',
-                $IE,
+                Strings::onlyNumbers($std->IE),
                 true,
                 $identificador . 'IE do proprietario'
             );
             $this->dom->addChild(
                 $this->prop[$p],
                 'UF',
-                $propUF,
+                $std->propUF,
                 true,
                 $identificador . 'UF do proprietario'
             );
             $this->dom->addChild(
                 $this->prop[$p],
                 'tpProp',
-                $tpPropProp,
+                $std->tpPropProp,
                 true,
                 $identificador . 'Tipo Proprietário'
             );
@@ -3256,53 +3822,119 @@ class Make extends BaseMake
         return $this->veic[$posicao];
     }
 
-
     /**
      * Leiaute - Rodoviário
-     * Gera as tags para o elemento: "moto" (Informações do(s) Motorista(s))
-     * #43
+     * Gera as tags para o elemento: "veic" (Dados dos Veículos)
+     * #21
      * Nível: 1
-     * @param string $xNome
-     * @param string $CPF
      * @return mixed
      */
-    public function motoTag($xNome = '', $CPF = '')
+    public function tagveicCTeOS($std)
     {
-        $identificador = '#43 <moto> - ';
-        $this->moto[] = $this->dom->createElement('moto');
-        $posicao = (integer)count($this->moto) - 1;
+        $identificador = '#21 <veic> - ';
+        $this->veic = $this->dom->createElement('veic');
+
         $this->dom->addChild(
-            $this->moto[$posicao],
-            'xNome',
-            $xNome,
+            $this->veic,
+            'placa',
+            $std->placa,
             false,
-            $identificador . 'Nome do motorista'
+            $identificador . 'Placa do veículo'
         );
         $this->dom->addChild(
-            $this->moto[$posicao],
-            'CPF',
-            $CPF,
+            $this->veic,
+            'RENAVAM',
+            $std->RENAVAM,
             false,
-            $identificador . 'CPF do motorista'
+            $identificador . 'RENAVAM do veículo'
         );
-        return $this->moto[$posicao];
+        if ($std->xNome != '') { // CASO FOR VEICULO DE TERCEIRO
+            $this->prop = $this->dom->createElement('prop');
+            if ($std->CNPJ != '') {
+                $this->dom->addChild(
+                    $this->prop,
+                    'CNPJ',
+                    $std->CNPJ,
+                    true,
+                    $identificador . 'CNPJ do proprietario'
+                );
+            } elseif ($CPF != '') {
+                $this->dom->addChild(
+                    $this->prop,
+                    'CPF',
+                    $std->CPF,
+                    true,
+                    $identificador . 'CPF do proprietario'
+                );
+            }
+            $this->dom->addChild(
+                $this->prop,
+                'TAF',
+                $std->taf,
+                false,
+                $identificador . 'TAF'
+            );
+            $this->dom->addChild(
+                $this->prop,
+                'NroRegEstadual',
+                $std->nroRegEstadual,
+                false,
+                $identificador . 'Número do Registro Estadual'
+            );
+            $this->dom->addChild(
+                $this->prop,
+                'xNome',
+                $std->xNome,
+                true,
+                $identificador . 'Nome do proprietario'
+            );
+            $this->dom->addChild(
+                $this->prop,
+                'IE',
+                Strings::onlyNumbers($std->IE),
+                true,
+                $identificador . 'IE do proprietario'
+            );
+            $this->dom->addChild(
+                $this->prop,
+                'UF',
+                $std->ufProp,
+                true,
+                $identificador . 'UF do proprietario'
+            );
+            $this->dom->addChild(
+                $this->prop,
+                'tpProp',
+                $std->tpProp,
+                true,
+                $identificador . 'Tipo Proprietário'
+            );
+            $this->dom->appChild($this->veic, $this->prop, 'Falta tag "prop"');
+        }
+        $this->dom->addChild(
+            $this->veic,
+            'UF',
+            $std->uf,
+            false,
+            $identificador . 'UF em que veículo está licenciado'
+        );
+        return $this->veic;
     }
 
     /**
      * Gera as tags para o elemento: "infCteComp" (Detalhamento do CT-e complementado)
      * #410
      * Nível: 1
-     * @param string $chave
      * @return DOMElement|\DOMNode
      */
-    public function infCTeComp($chave = '')
+    public function taginfCTeComp($std)
     {
         $identificador = '#410 <infCteComp> - ';
         $this->infCteComp = $this->dom->createElement('infCteComp');
         $this->dom->addChild(
             $this->infCteComp,
             'chave',
-            $chave,
+            $std->chave,
             true,
             $identificador . ' Chave do CT-e complementado'
         );
@@ -3313,28 +3945,64 @@ class Make extends BaseMake
      * Gera as tags para o elemento: "infCteAnu" (Detalhamento do CT-e de Anulação)
      * #411
      * Nível: 1
-     * @param string $chave
-     * @param string $data
      * @return DOMElement|\DOMNode
      */
-    public function infCteAnuTag($chave = '', $data = '')
+    public function taginfCteAnu($std)
     {
         $identificador = '#411 <infCteAnu> - ';
         $this->infCteAnu = $this->dom->createElement('infCteAnu');
         $this->dom->addChild(
             $this->infCteAnu,
             'chCte',
-            $chave,
+            $std->chave,
             true,
             $identificador . ' Chave do CT-e anulado'
         );
         $this->dom->addChild(
             $this->infCteAnu,
             'dEmi',
-            $data,
+            $std->data,
             true,
             $identificador . ' Data de Emissão do CT-e anulado'
         );
         return $this->infCteAnu;
+    }
+    
+    protected function checkCTeKey(Dom $dom)
+    {
+        $infCTe = $dom->getElementsByTagName("infCte")->item(0);
+        $ide = $dom->getElementsByTagName("ide")->item(0);
+        $emit = $dom->getElementsByTagName("emit")->item(0);
+        $cUF = $ide->getElementsByTagName('cUF')->item(0)->nodeValue;
+        $dhEmi = $ide->getElementsByTagName('dhEmi')->item(0)->nodeValue;
+        $cnpj = $emit->getElementsByTagName('CNPJ')->item(0)->nodeValue;
+        $mod = $ide->getElementsByTagName('mod')->item(0)->nodeValue;
+        $serie = $ide->getElementsByTagName('serie')->item(0)->nodeValue;
+        $nNF = $ide->getElementsByTagName('nCT')->item(0)->nodeValue;
+        $tpEmis = $ide->getElementsByTagName('tpEmis')->item(0)->nodeValue;
+        $cCT = $ide->getElementsByTagName('cCT')->item(0)->nodeValue;
+        $chave = str_replace('CTe', '', $infCTe->getAttribute("Id"));
+
+        $dt = new DateTime($dhEmi);
+
+        $chaveMontada = Keys::build(
+            $cUF,
+            $dt->format('y'),
+            $dt->format('m'),
+            $cnpj,
+            $mod,
+            $serie,
+            $nNF,
+            $tpEmis,
+            $cCT
+        );
+        //caso a chave contida no CTe esteja errada
+        //substituir a chave
+        if ($chaveMontada != $chave) {
+            $ide->getElementsByTagName('cDV')->item(0)->nodeValue = substr($chaveMontada, -1);
+            $infCTe = $dom->getElementsByTagName("infCte")->item(0);
+            $infCTe->setAttribute("Id", "CTe" . $chaveMontada);
+            $this->chCTe = $chaveMontada;
+        }
     }
 }

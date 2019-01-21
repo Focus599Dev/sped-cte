@@ -39,13 +39,21 @@ try {
   $tools = new Tools($configJson, Certificate::readPfx($content, '02040608'));
   $tools->model('57');
 
-  $chave = '43171099999999999999570010000001271293693261';
-  $xJust = 'Valor do frete incorreto.';
-  $nProt = '143170000724044';
-  $response = $tools->sefazCancela($chave, $xJust, $nProt);
-//     header('Content-type: text/xml; charset=UTF-8');
-//print_r($response);
-//exit();
+  $nSerie = 1;
+  $nIni = 134;
+  $nFin = 135;
+  $xJust = 'Númeração removida da emissão normal';
+  $tpAmb = 2;
+  $response = $tools->sefazInutiliza($nSerie, $nIni, $nFin, $xJust, $tpAmb);
+  $chave = '43'
+      . $arr['cnpj']
+      . $tools->model()
+      . str_pad($nSerie, 3, '0', STR_PAD_LEFT)
+      . str_pad($nIni, 9, '0', STR_PAD_LEFT)
+      . str_pad($nFin, 9, '0', STR_PAD_LEFT);
+//  header('Content-type: text/xml; charset=UTF-8');
+//  print_r($response);
+//  exit();
 //    
   //você pode padronizar os dados de retorno atraves da classe abaixo
   //de forma a facilitar a extração dos dados do XML
@@ -58,13 +66,14 @@ try {
   $arr = $stdCl->toArray();
   //nesse caso o $json irá conter uma representação em JSON do XML retornado
   $json = $stdCl->toJson();
+  echo "<pre>";
   print_r($arr);
-  $cStat = $std->infEvento->cStat;
-  if ($cStat == '101' || $cStat == '135' || $cStat == '155') {
+  $cStat = $std->infInut->cStat;
+  if ($cStat == '102') {
     //SUCESSO PROTOCOLAR A SOLICITAÇÂO ANTES DE GUARDAR
     $xml = Complements::toAuthorize($tools->lastRequest, $response);
     //grave o XML protocolado e prossiga com outras tarefas de seu aplicativo
-    $filename = "xml/canceladas/{$chave}-CancCTe-procEvento.xml";
+    $filename = "xml/{$chave}-procInutCTe.xml";
     file_put_contents($filename, $xml);
   } else {
     //houve alguma falha no evento 
