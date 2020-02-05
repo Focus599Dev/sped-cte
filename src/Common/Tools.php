@@ -604,5 +604,9 @@ class Tools
         if (empty($this->soap)) {
             $this->soap = new SoapCurl($this->certificate);
         }
+        
+        if ($this->config->proxy){
+            $this->soap->proxy($this->config->proxy, $this->config->proxyPort, $this->config->proxyUser, $this->config->proxyPass);
+        }
     }
 }
