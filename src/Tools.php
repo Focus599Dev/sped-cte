@@ -899,7 +899,7 @@ class Tools extends ToolsCommon
             case 610110:
                 //Prestação de Serviço em Desacordo
                 $std->alias = 'EvPrestDesacordo';
-                $std->desc = 'Prestação de Serviço em Desacordo';
+                $std->desc = 'Prestacao de Servico em Desacordo';
             break;
             default:
                 $msg = "O código do tipo de evento informado não corresponde a "
@@ -946,7 +946,7 @@ class Tools extends ToolsCommon
 
     private static function serializerSD($inf){
         return "<evPrestDesacordo>".
-        "<descEvento>Prestação do Serviço em Desacordo</descEvento>".
+        "<descEvento>Prestacao do Servico em Desacordo</descEvento>".
         "<indDesacordoOper>1</indDesacordoOper>".
         "<xObs>$inf</xObs>".
         "</evPrestDesacordo>";
