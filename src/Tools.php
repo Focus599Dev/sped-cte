@@ -402,6 +402,8 @@ class Tools extends ToolsCommon
         $uf = $this->validKeyByUF($chave);
         $tpEvento = 610110;
         
+        $infAdic = Strings::replaceSpecialsChars(substr(trim($infAdic), 0, 255));
+
         $tagAdic = self::serializerSD($infAdic);
         
         return $this->sefazEvento(
